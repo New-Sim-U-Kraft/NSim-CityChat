@@ -1,5 +1,7 @@
 package com.lokins.citychat;
 
+import com.lokins.citychat.integration.SimukraftDetector;
+import com.lokins.citychat.integration.SimukraftIntegration;
 import com.lokins.citychat.manager.ChatManager;
 import com.lokins.citychat.network.ChatNetwork;
 import com.lokins.citychat.network.ChannelSnapshotPacket;
@@ -8,6 +10,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.server.ServerStartingEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -75,10 +78,23 @@ public class CityChatMod {
     }
 
     /**
-     * 服务器关闭时强制保存所有数据。
+     * 服务器启动时激活 simukraft 集成（如果可用）。
+     */
+    @SubscribeEvent
+    public void onServerStarting(ServerStartingEvent event) {
+        if (SimukraftDetector.isAvailable()) {
+            SimukraftIntegration.activate();
+        }
+    }
+
+    /**
+     * 服务器关闭时强制保存所有数据并停用集成。
      */
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
+        if (SimukraftDetector.isAvailable()) {
+            SimukraftIntegration.deactivate();
+        }
         ChatManager.getInstance().getChannelManager().saveAll();
         LOGGER.info("CityChat data saved on server shutdown");
     }

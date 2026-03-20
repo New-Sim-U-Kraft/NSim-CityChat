@@ -44,6 +44,14 @@ public class ChannelSnapshotPacket {
     public static ChannelSnapshotPacket forPlayer(UUID playerId) {
         List<ChatChannel> visible = ChatManager.getInstance()
                 .getChannelManager().getVisibleChannelsForPlayer(playerId);
+        long notifyCount = visible.stream().filter(ch -> ch.getType() == ChatChannel.ChannelType.NOTIFICATION).count();
+        com.mojang.logging.LogUtils.getLogger().info("[CC快照] 为玩家 {} 生成快照: 共 {} 个频道(其中 NOTIFICATION={})",
+                playerId, visible.size(), notifyCount);
+        for (ChatChannel ch : visible) {
+            if (ch.getType() == ChatChannel.ChannelType.NOTIFICATION) {
+                com.mojang.logging.LogUtils.getLogger().info("[CC快照]   通知频道: id={}, name={}, members={}", ch.getChannelId(), ch.getDisplayName(), ch.getMemberCount());
+            }
+        }
         return fromChannels(visible);
     }
 

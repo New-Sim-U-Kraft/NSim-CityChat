@@ -63,29 +63,29 @@ public class GroupInfoScreen extends Screen {
         UUID me = currentPlayerId();
         boolean isOwner = ch != null && me != null && ch.isOwner(me);
         boolean isManager = ch != null && me != null && ch.canManage(me);
+        boolean isNotification = ch != null && ch.isNotificationChannel();
 
-        // 所有人可见
-        addBtn("分享群组",     b -> shareGroup());
+        if (!isNotification) {
+            // 非通知频道：正常显示所有管理按钮
+            addBtn("分享群组",     b -> shareGroup());
 
-        // 管理员+群主可见
-        if (isManager) {
-            addBtn("切换群组类型", b -> switchAccess());
-            addBtn("修改密码",     b -> changePassword());
-            addBtn("踢出群组",     b -> kickMember());
-        }
+            if (isManager) {
+                addBtn("切换群组类型", b -> switchAccess());
+                addBtn("修改密码",     b -> changePassword());
+                addBtn("踢出群组",     b -> kickMember());
+            }
 
-        // 仅群主可见
-        if (isOwner) {
-            addBtn("设为管理员",   b -> setAdmin(true));
-            addBtn("取消管理员",   b -> setAdmin(false));
-            addBtn("变更群号",     b -> changeGroupNumber());
-            addBtn("转让群主",     b -> transferOwnership());
-            addBtn("解散群组",     b -> dissolve());
-        }
+            if (isOwner) {
+                addBtn("设为管理员",   b -> setAdmin(true));
+                addBtn("取消管理员",   b -> setAdmin(false));
+                addBtn("变更群号",     b -> changeGroupNumber());
+                addBtn("转让群主",     b -> transferOwnership());
+                addBtn("解散群组",     b -> dissolve());
+            }
 
-        // 非群主可退群
-        if (ch != null && me != null && !isOwner) {
-            addBtn("退出群组",     b -> leaveGroup());
+            if (ch != null && me != null && !isOwner) {
+                addBtn("退出群组",     b -> leaveGroup());
+            }
         }
 
         addBtn("返回",        b -> this.minecraft.setScreen(parentScreen));

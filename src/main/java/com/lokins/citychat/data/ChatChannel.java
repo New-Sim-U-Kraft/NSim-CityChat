@@ -23,7 +23,8 @@ public class ChatChannel {
 
     public enum ChannelType {
         GROUP("群聊", "#4ecdc4"),
-        PRIVATE("私聊", "#95e1d3");
+        PRIVATE("私聊", "#95e1d3"),
+        NOTIFICATION("城市通知", "#f0a500");
 
         private final String displayName;
         private final String color;
@@ -145,6 +146,10 @@ public class ChatChannel {
             return false;
         }
         return password.equals(candidate);
+    }
+
+    public boolean isNotificationChannel() {
+        return type == ChannelType.NOTIFICATION;
     }
 
     public boolean isPublicVisible() {

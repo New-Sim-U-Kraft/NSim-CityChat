@@ -33,6 +33,7 @@ public class ChannelManager {
     private final Map<Integer, String> groupNoToChannelId = new ConcurrentHashMap<>();
     private final AtomicInteger nextGroupNo = new AtomicInteger(1);
     private final ChatEventDispatcher eventDispatcher;
+    private final List<ChannelVisibilityFilter> visibilityFilters = new ArrayList<>();
     private Path storagePath;
 
     public ChannelManager(ChatEventDispatcher eventDispatcher) {
@@ -41,6 +42,16 @@ public class ChannelManager {
         if (isServerSide()) {
             loadPersistedChannels();
         }
+    }
+
+    public void addVisibilityFilter(ChannelVisibilityFilter filter) {
+        if (filter != null) {
+            visibilityFilters.add(filter);
+        }
+    }
+
+    public void removeVisibilityFilter(ChannelVisibilityFilter filter) {
+        visibilityFilters.remove(filter);
     }
 
     /**
@@ -268,7 +279,17 @@ public class ChannelManager {
                 continue;
             }
             if (channel.isPublicVisible() || channel.isMember(playerId)) {
-                visible.add(channel);
+                // 通过所有可见性过滤器
+                boolean passFilters = true;
+                for (ChannelVisibilityFilter filter : visibilityFilters) {
+                    if (!filter.isVisible(channel, playerId)) {
+                        passFilters = false;
+                        break;
+                    }
+                }
+                if (passFilters) {
+                    visible.add(channel);
+                }
             }
         }
         visible.sort(Comparator.comparingInt(ChatChannel::getGroupNumber));
@@ -492,6 +513,13 @@ public class ChannelManager {
 
         ChatChannel.ChannelType type = parseChannelType(persisted.type);
         ChatChannel.GroupAccess access = parseGroupAccess(persisted.access);
+
+        // 旧数据迁移：sk_notify_ 开头且 type 为 GROUP → 覆盖为 NOTIFICATION
+        if (persisted.channelId.startsWith("sk_notify_") && type == ChatChannel.ChannelType.GROUP) {
+            type = ChatChannel.ChannelType.NOTIFICATION;
+            LOGGER.info("Migrated channel {} from GROUP to NOTIFICATION", persisted.channelId);
+        }
+
         String password = persisted.password == null ? "" : persisted.password;
         UUID ownerId = parseUuid(persisted.ownerId);
         if (ownerId == null) {

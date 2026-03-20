@@ -62,7 +62,16 @@ public class ChatMessageBroadcastPacket {
     public static void handle(ChatMessageBroadcastPacket msg, Supplier<NetworkEvent.Context> ctxSupplier) {
         NetworkEvent.Context ctx = ctxSupplier.get();
         ctx.enqueueWork(() -> {
+            com.mojang.logging.LogUtils.getLogger().info("[CC客户端] 收到 ChatMessageBroadcast: 频道={}, 发送者={}, 内容={}",
+                    msg.channelId, msg.senderName, msg.content);
+
             ChatManager chatManager = ChatManager.getInstance();
+            ChatChannel targetChannel = chatManager.getChannelManager().getChannel(msg.channelId);
+
+            if (targetChannel == null) {
+                com.mojang.logging.LogUtils.getLogger().warn("[CC客户端] 频道 {} 在客户端不存在! 消息将被丢弃（可能快照还没到）", msg.channelId);
+            }
+
             ChatMessage chatMessage = new ChatMessage(
                     msg.senderId,
                     msg.senderName,
@@ -91,8 +100,8 @@ public class ChatMessageBroadcastPacket {
             }
 
             if (shouldNotify) {
-                ChatChannel channel = chatManager.getChannelManager().getChannel(msg.channelId);
-                String channelName = channel != null ? channel.getDisplayName() : msg.channelId;
+                String channelName = targetChannel != null ? targetChannel.getDisplayName() : msg.channelId;
+                com.mojang.logging.LogUtils.getLogger().info("[CC客户端] 触发右上角通知: 频道={}, 发送者={}", channelName, msg.senderName);
                 NotificationManager.getInstance().addNotification(channelName, msg.senderName, msg.content);
             }
         });

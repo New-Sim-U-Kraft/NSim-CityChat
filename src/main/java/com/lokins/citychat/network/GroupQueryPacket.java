@@ -39,6 +39,11 @@ public class GroupQueryPacket {
             ChatChannel channel = ChatManager.getInstance()
                     .getChannelManager().findChannelByNameOrNumber(msg.query);
 
+            // 通知频道不可被搜索到
+            if (channel != null && channel.isNotificationChannel()) {
+                channel = null;
+            }
+
             GroupQueryResultPacket result;
             if (channel == null) {
                 result = GroupQueryResultPacket.notFound(msg.query);

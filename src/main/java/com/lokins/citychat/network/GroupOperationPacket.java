@@ -136,12 +136,23 @@ public class GroupOperationPacket {
                     failKey = "cc.group.create_failed";
                 }
                 case JOIN -> {
-                    success = manager.getChannelManager().joinByNameOrNumber(msg.query, msg.password, operatorId, operatorName);
+                    // 通知频道禁止通过搜索/群号加入
+                    ChatChannel joinCh = manager.getChannelManager().findChannelByNameOrNumber(msg.query);
+                    if (joinCh != null && joinCh.isNotificationChannel()) {
+                        success = false;
+                    } else {
+                        success = manager.getChannelManager().joinByNameOrNumber(msg.query, msg.password, operatorId, operatorName);
+                    }
                     successKey = "cc.group.joined";
                     failKey = "cc.group.join_failed";
                 }
                 case LEAVE -> {
-                    success = manager.getChannelManager().leaveChannel(msg.channelId, operatorId, operatorName);
+                    ChatChannel leaveCh = manager.getChannelManager().getChannel(msg.channelId);
+                    if (leaveCh != null && leaveCh.isNotificationChannel()) {
+                        success = false; // 通知频道禁止退出
+                    } else {
+                        success = manager.getChannelManager().leaveChannel(msg.channelId, operatorId, operatorName);
+                    }
                     successKey = "cc.group.left";
                     failKey = "cc.group.left_failed";
                 }
@@ -161,12 +172,22 @@ public class GroupOperationPacket {
                     failKey = "cc.group.password_failed";
                 }
                 case DISSOLVE -> {
-                    success = manager.getChannelManager().dissolveGroup(msg.channelId, operatorId);
+                    ChatChannel dissolveCh = manager.getChannelManager().getChannel(msg.channelId);
+                    if (dissolveCh != null && dissolveCh.isNotificationChannel()) {
+                        success = false; // 通知频道禁止解散
+                    } else {
+                        success = manager.getChannelManager().dissolveGroup(msg.channelId, operatorId);
+                    }
                     successKey = "cc.group.dissolved";
                     failKey = "cc.group.dissolve_failed";
                 }
                 case KICK -> {
-                    success = msg.targetId != null && manager.getChannelManager().kickMember(msg.channelId, operatorId, msg.targetId);
+                    ChatChannel kickCh = manager.getChannelManager().getChannel(msg.channelId);
+                    if (kickCh != null && kickCh.isNotificationChannel()) {
+                        success = false; // 通知频道禁止踢人
+                    } else {
+                        success = msg.targetId != null && manager.getChannelManager().kickMember(msg.channelId, operatorId, msg.targetId);
+                    }
                     successKey = "cc.group.kicked";
                     failKey = "cc.group.kick_failed";
                 }
