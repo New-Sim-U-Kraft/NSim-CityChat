@@ -1,0 +1,17 @@
+{
+  "required": true,
+  "package": "com.lokins.citychat.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "minVersion": "0.8",
+  "refmap": "cc.refmap.json",
+  "mixins": [
+    "simukraft.CityDataAccessMixin",
+    "simukraft.NotificationServiceManagerMixin",
+    "simukraft.NullNotificationServiceMixin"
+  ],
+  "client": [],
+  "injectors": {
+    "defaultRequire": 0
+  },
+  "plugin": "com.lokins.citychat.mixin.CityChaiMixinPlugin"
+}
