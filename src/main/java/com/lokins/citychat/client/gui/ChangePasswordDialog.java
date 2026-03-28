@@ -11,17 +11,17 @@ import net.minecraft.network.chat.Component;
 import java.util.UUID;
 
 /**
- * 修改密码弹窗
- * 仅加密群可修改
+ * 修改密码弹窗 —— 使用 LDLib 纹理渲染
  */
 public class ChangePasswordDialog extends Screen {
-    private static final int DIALOG_WIDTH = 300;
-    private static final int DIALOG_HEIGHT = 140;
+    private static final int DW = 300, DH = 140;
 
     private final GroupInfoScreen parentScreen;
     private final ChatChannel channel;
     private EditBox passwordInput;
+    private CCButton confirmBtn, cancelBtn;
     private String hint = "";
+    private int hintColor = UIStyles.COLOR_OK;
 
     public ChangePasswordDialog(GroupInfoScreen parentScreen, ChatChannel channel) {
         super(Component.literal("修改密码"));
@@ -31,74 +31,70 @@ public class ChangePasswordDialog extends Screen {
 
     @Override
     protected void init() {
-        int x = (width - DIALOG_WIDTH) / 2;
-        int y = (height - DIALOG_HEIGHT) / 2;
+        int px = (width - DW) / 2, py = (height - DH) / 2;
 
-        passwordInput = new EditBox(this.font, x + 12, y + 50, DIALOG_WIDTH - 24, 18, Component.literal("新密码"));
+        passwordInput = new EditBox(this.font, px + 12, py + 50, DW - 24, 18, Component.literal("新密码"));
         passwordInput.setMaxLength(24);
         this.addWidget(passwordInput);
         this.setInitialFocus(passwordInput);
 
-        this.addRenderableWidget(ModButton.modBuilder(Component.literal("确认"), b -> confirm())
-                .bounds(x + 12, y + DIALOG_HEIGHT - 28, 130, 20)
-                .build());
-
-        this.addRenderableWidget(ModButton.modBuilder(Component.literal("取消"), b -> this.minecraft.setScreen(parentScreen))
-                .bounds(x + DIALOG_WIDTH - 142, y + DIALOG_HEIGHT - 28, 130, 20)
-                .build());
+        confirmBtn = new CCButton(px + 12, py + DH - 28, 130, 20, "确认", b -> confirm(), true);
+        cancelBtn = new CCButton(px + DW - 142, py + DH - 28, 130, 20, "取消",
+                b -> this.minecraft.setScreen(parentScreen));
     }
 
     private void confirm() {
         UUID me = Minecraft.getInstance().player != null ? Minecraft.getInstance().player.getUUID() : null;
-        if (me == null) {
-            hint = "出错了";
-            return;
-        }
+        if (me == null) { hint = "出错了"; hintColor = UIStyles.COLOR_ERR; return; }
 
         String password = passwordInput.getValue() == null ? "" : passwordInput.getValue().trim();
-        if (password.length() < 4) {
-            hint = "密码至少4位";
-            return;
-        }
+        if (password.length() < 4) { hint = "密码至少4位"; hintColor = UIStyles.COLOR_ERR; return; }
 
         ChatNetwork.requestChangePassword(channel.getChannelId(), password);
         this.minecraft.setScreen(parentScreen);
     }
 
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == 256) {
-            this.minecraft.setScreen(parentScreen);
-            return true;
+    public void render(GuiGraphics gg, int mouseX, int mouseY, float pt) {
+        this.renderBackground(gg);
+
+        int px = (width - DW) / 2, py = (height - DH) / 2;
+
+        UIStyles.drawShadow(gg, px, py, DW, DH);
+        gg.fill(px, py, px + DW, py + DH, UIStyles.BG_POPUP);
+        gg.fill(px, py, px + DW, py + 1, UIStyles.DIVIDER);
+        gg.fill(px, py + DH - 1, px + DW, py + DH, UIStyles.DIVIDER);
+        gg.fill(px, py, px + 1, py + DH, UIStyles.DIVIDER);
+        gg.fill(px + DW - 1, py, px + DW, py + DH, UIStyles.DIVIDER);
+
+        gg.drawString(this.font, "修改密码", px + 12, py + 10, UIStyles.TEXT_WHITE);
+        UIStyles.drawDivider(gg, px + 8, py + 22, DW - 16);
+        gg.drawString(this.font, "新密码:", px + 12, py + 36, UIStyles.TEXT_SECONDARY);
+        passwordInput.render(gg, mouseX, mouseY, pt);
+
+        if (!hint.isEmpty()) {
+            gg.drawString(this.font, hint, px + 12, py + DH - 10, hintColor);
         }
+
+        confirmBtn.render(gg, mouseX, mouseY, pt);
+        cancelBtn.render(gg, mouseX, mouseY, pt);
+    }
+
+    @Override
+    public boolean mouseClicked(double mx, double my, int btn) {
+        if (confirmBtn.mouseClicked(mx, my, btn)) return true;
+        if (cancelBtn.mouseClicked(mx, my, btn)) return true;
+        return super.mouseClicked(mx, my, btn);
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (keyCode == 256) { this.minecraft.setScreen(parentScreen); return true; }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override
     public boolean charTyped(char codePoint, int modifiers) {
         return super.charTyped(codePoint, modifiers);
-    }
-
-    @Override
-    public void render(GuiGraphics gg, int mouseX, int mouseY, float partialTick) {
-        this.renderBackground(gg);
-
-        int x = (width - DIALOG_WIDTH) / 2;
-        int y = (height - DIALOG_HEIGHT) / 2;
-
-        gg.fill(x, y, x + DIALOG_WIDTH, y + DIALOG_HEIGHT, 0xEE1f1f1f);
-        gg.fill(x, y, x + DIALOG_WIDTH, y + 1, 0xFF4a4a4a);
-        gg.fill(x, y + DIALOG_HEIGHT - 1, x + DIALOG_WIDTH, y + DIALOG_HEIGHT, 0xFF4a4a4a);
-        gg.fill(x, y, x + 1, y + DIALOG_HEIGHT, 0xFF4a4a4a);
-        gg.fill(x + DIALOG_WIDTH - 1, y, x + DIALOG_WIDTH, y + DIALOG_HEIGHT, 0xFF4a4a4a);
-
-        gg.drawString(this.font, "修改密码", x + 12, y + 10, 0xFFFFFFFF);
-        gg.drawString(this.font, "新密码:", x + 12, y + 36, 0xFFBDBDBD);
-
-        passwordInput.render(gg, mouseX, mouseY, partialTick);
-
-        gg.drawString(this.font, hint, x + 12, y + DIALOG_HEIGHT - 10, hint.contains("失败") || hint.contains("至少") ? 0xFFE07070 : 0xFF93D17C);
-
-        super.render(gg, mouseX, mouseY, partialTick);
     }
 }

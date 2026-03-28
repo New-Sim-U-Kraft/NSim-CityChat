@@ -11,7 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 城市角色桥接服务：缓存「玩家 → 拥有管理权的城市集合」映射 + 城市名称。
  * <p>
- * 数据来源：CityDataAccessMixin 在 CityData 变更时全量刷新。
+ * 数据来源：监听 SimuKraft 的 {@code CityDataChangedEvent}，在城市数据变更时全量刷新。
  */
 public class CityRoleBridge {
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -23,7 +23,7 @@ public class CityRoleBridge {
     /** cityId → 城市名称 */
     private final Map<String, String> cityNames = new ConcurrentHashMap<>();
 
-    /** Mixin 是否成功注入过数据 */
+    /** 事件监听是否成功注入过数据 */
     private volatile boolean populated = false;
 
     public static CityRoleBridge getInstance() {
@@ -67,7 +67,7 @@ public class CityRoleBridge {
         }
     }
 
-    /** 全量刷新角色 + 城市名（由 Mixin 调用） */
+    /** 全量刷新角色 + 城市名（由 CityDataChangedEvent 监听器调用） */
     public void refresh(Map<UUID, Set<String>> newRoles, Map<String, String> newCityNames) {
         playerCityRoles.clear();
         for (var entry : newRoles.entrySet()) {

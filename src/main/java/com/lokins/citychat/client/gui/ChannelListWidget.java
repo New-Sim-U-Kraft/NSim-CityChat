@@ -10,13 +10,17 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 频道列表组件 — 三分组：群组、私聊、城市通知（仅 simukraft 存在时显示）
+ * 频道列表 —— Discord 风格：分组、选中指示条、悬停高亮
  */
-public class ChannelListWidget extends AbstractChatWidget {
-    private static final int LINE_HEIGHT = 16;
-    private static final int HEADER_HEIGHT = 24;
-    private static final int FOOTER_HEIGHT = 42;
-    private static final int GROUP_HEADER_HEIGHT = 16;
+public class ChannelListWidget {
+    private static final int LINE_HEIGHT = 18;
+    private static final int HEADER_HEIGHT = 28;
+    private static final int FOOTER_HEIGHT = 44;
+    private static final int SECTION_HEIGHT = 22;
+    private static final int PADDING = 6;
+
+    private final int x, y, width, height;
+    private final ChatScreen parent;
 
     private int selectedIndex = -1;
     private boolean groupCollapsed = false;
@@ -24,49 +28,37 @@ public class ChannelListWidget extends AbstractChatWidget {
     private boolean notifyCollapsed = false;
     private int scrollOffset = 0;
 
-    /** 当前帧渲染的行列表，用于点击命中测试 */
     private final List<RowEntry> renderedRows = new ArrayList<>();
 
     public ChannelListWidget(int x, int y, int width, int height, ChatScreen parent) {
-        super(x, y, width, height, parent);
+        this.x = x;
+        this.y = y;
+        this.width = width;
+        this.height = height;
+        this.parent = parent;
     }
 
-    @Override
-    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(guiGraphics, 0xFF2a2a2a);
-        renderBorder(guiGraphics, 0xFF4a4a4a);
+    public void render(GuiGraphics gg, int mouseX, int mouseY, float pt) {
+        // 侧边栏背景
+        gg.fill(x, y, x + width, y + height, UIStyles.BG_BASE);
 
         Minecraft mc = Minecraft.getInstance();
 
-        // 折叠态：显示展开、当前群号缩略、创建和加入。
+        // 折叠态
         if (width <= 24 || parent.isChannelListCollapsed()) {
-            guiGraphics.drawCenteredString(mc.font, ">", x + width / 2, y + 6, 0xFFffffff);
-
-            String groupNoMini = "#-";
-            String currentId = parent.getCurrentChannelId();
-            if (currentId != null) {
-                ChatChannel current = parent.getChatManager().getChannelManager().getChannel(currentId);
-                if (current != null) {
-                    groupNoMini = "#" + current.getGroupNumber();
-                }
-            }
-            guiGraphics.fill(x + 3, y + 18, x + width - 3, y + 31, 0xFF3A4658);
-            guiGraphics.drawCenteredString(mc.font, groupNoMini, x + width / 2, y + 20, 0xFFaaaaaa);
-
-            guiGraphics.drawCenteredString(mc.font, "+", x + width / 2, y + height - 28, 0xFF93d17c);
-            guiGraphics.drawCenteredString(mc.font, "J", x + width / 2, y + height - 14, 0xFF8CC0FF);
+            renderCollapsedMode(gg, mc);
             return;
         }
 
-        guiGraphics.drawString(mc.font, "群组", x + 6, y + 8, 0xFFffffff);
-        guiGraphics.drawString(mc.font, "<", x + width - 12, y + 8, 0xFFbbbbbb);
+        // 头部
+        gg.fill(x, y, x + width, y + HEADER_HEIGHT, UIStyles.BG_HEADER);
+        gg.drawString(mc.font, "频道", x + PADDING + 2, y + 10, UIStyles.TEXT_WHITE);
+        gg.drawString(mc.font, "«", x + width - 14, y + 10, UIStyles.TEXT_MUTED);
+        UIStyles.drawDivider(gg, x, y + HEADER_HEIGHT - 1, width);
 
         // 分组频道
         List<ChatChannel> allChannels = getVisibleChannelsForCurrentPlayer();
-        List<ChatChannel> groups = new ArrayList<>();
-        List<ChatChannel> privates = new ArrayList<>();
-        List<ChatChannel> notifications = new ArrayList<>();
-
+        List<ChatChannel> groups = new ArrayList<>(), privates = new ArrayList<>(), notifications = new ArrayList<>();
         for (ChatChannel ch : allChannels) {
             switch (ch.getType()) {
                 case NOTIFICATION -> notifications.add(ch);
@@ -78,171 +70,156 @@ public class ChannelListWidget extends AbstractChatWidget {
         renderedRows.clear();
         int contentAreaTop = y + HEADER_HEIGHT;
         int contentAreaBottom = y + height - FOOTER_HEIGHT;
-        int yOffset = contentAreaTop - scrollOffset;
+        int yOffset = contentAreaTop + 4 - scrollOffset;
         String activeChannelId = parent.getCurrentChannelId();
 
-        // === 群组分组 ===
-        yOffset = renderGroupSection(guiGraphics, mc, "群组", groups, groupCollapsed,
-                0xFF4ecdc4, yOffset, contentAreaTop, contentAreaBottom, activeChannelId, RowType.GROUP_HEADER, false);
-
-        // === 私聊分组 ===
-        yOffset = renderGroupSection(guiGraphics, mc, "私聊", privates, privateCollapsed,
-                0xFF95e1d3, yOffset, contentAreaTop, contentAreaBottom, activeChannelId, RowType.PRIVATE_HEADER, false);
-
-        // === 城市通知分组（仅 simukraft 存在且有通知频道时显示）===
+        // 城市通知优先显示（仅 SimuKraft 可用时）
         if (SimukraftDetector.isAvailable() && !notifications.isEmpty()) {
-            renderGroupSection(guiGraphics, mc, "城市通知", notifications, notifyCollapsed,
-                    0xFFf0a500, yOffset, contentAreaTop, contentAreaBottom, activeChannelId, RowType.NOTIFY_HEADER, true);
+            yOffset = renderSection(gg, mc, "城市通知", notifications, notifyCollapsed,
+                    yOffset, contentAreaTop, contentAreaBottom, activeChannelId, RowType.NOTIFY_HEADER, true, mouseX, mouseY);
         }
+        yOffset = renderSection(gg, mc, "群组", groups, groupCollapsed,
+                yOffset, contentAreaTop, contentAreaBottom, activeChannelId, RowType.GROUP_HEADER, false, mouseX, mouseY);
+        renderSection(gg, mc, "私聊", privates, privateCollapsed,
+                yOffset, contentAreaTop, contentAreaBottom, activeChannelId, RowType.PRIVATE_HEADER, false, mouseX, mouseY);
 
-        // Footer
+        // 底部分隔线
         int footerY = y + height - FOOTER_HEIGHT;
-        guiGraphics.fill(x + 2, footerY + 2, x + width - 2, footerY + 20, 0xFF3a3a3a);
-        guiGraphics.drawString(mc.font, "+ 新建群组", x + 6, footerY + 8, 0xFF93d17c);
+        UIStyles.drawDivider(gg, x, footerY, width);
 
-        guiGraphics.fill(x + 2, footerY + 22, x + width - 2, footerY + FOOTER_HEIGHT - 2, 0xFF353535);
-        guiGraphics.drawString(mc.font, "J 加入群组", x + 6, footerY + 28, 0xFF8CC0FF);
+        // Footer 按钮
+        renderFooterButton(gg, mc, footerY + 2, "+ 新建群组", UIStyles.COLOR_OK, mouseX, mouseY);
+        renderFooterButton(gg, mc, footerY + 22, "J 加入群组", UIStyles.COLOR_INFO, mouseX, mouseY);
     }
 
-    private int renderGroupSection(GuiGraphics gg, Minecraft mc, String title,
-                                   List<ChatChannel> channels, boolean collapsed,
-                                   int titleColor, int yOffset,
-                                   int contentTop, int contentBottom,
-                                   String activeChannelId, RowType headerType,
-                                   boolean isNotification) {
-        // 分组头
-        String arrow = collapsed ? "\u25B6" : "\u25BC";
-        String headerText = arrow + " " + title + " (" + channels.size() + ")";
+    private void renderCollapsedMode(GuiGraphics gg, Minecraft mc) {
+        gg.drawCenteredString(mc.font, "»", x + width / 2, y + 8, UIStyles.TEXT_MUTED);
 
-        if (yOffset >= contentTop && yOffset + GROUP_HEADER_HEIGHT <= contentBottom) {
-            gg.fill(x + 2, yOffset, x + width - 2, yOffset + GROUP_HEADER_HEIGHT, 0xFF333333);
-            gg.drawString(mc.font, headerText, x + 6, yOffset + 4, titleColor);
+        String groupNoMini = "#-";
+        String currentId = parent.getCurrentChannelId();
+        if (currentId != null) {
+            ChatChannel current = parent.getChatManager().getChannelManager().getChannel(currentId);
+            if (current != null) groupNoMini = "#" + current.getGroupNumber();
         }
-        renderedRows.add(new RowEntry(headerType, null, yOffset, GROUP_HEADER_HEIGHT));
-        yOffset += GROUP_HEADER_HEIGHT;
+        gg.fill(x + 4, y + 20, x + width - 4, y + 34, UIStyles.BG_SURFACE);
+        gg.drawCenteredString(mc.font, groupNoMini, x + width / 2, y + 23, UIStyles.TEXT_SECONDARY);
 
-        if (collapsed) {
-            return yOffset;
+        gg.drawCenteredString(mc.font, "+", x + width / 2, y + height - 28, UIStyles.COLOR_OK);
+        gg.drawCenteredString(mc.font, "J", x + width / 2, y + height - 14, UIStyles.COLOR_INFO);
+    }
+
+    private int renderSection(GuiGraphics gg, Minecraft mc, String title,
+                              List<ChatChannel> channels, boolean collapsed,
+                              int yOffset, int contentTop, int contentBottom,
+                              String activeChannelId, RowType headerType,
+                              boolean isNotification, int mouseX, int mouseY) {
+        // 分组头：大写标题 + 折叠箭头
+        String arrow = collapsed ? "▸" : "▾";
+        String headerText = arrow + "  " + title.toUpperCase() + " — " + channels.size();
+
+        if (yOffset >= contentTop && yOffset + SECTION_HEIGHT <= contentBottom) {
+            gg.drawString(mc.font, headerText, x + PADDING + 2, yOffset + 7, UIStyles.CHAN_CATEGORY);
         }
+        renderedRows.add(new RowEntry(headerType, null, yOffset, SECTION_HEIGHT));
+        yOffset += SECTION_HEIGHT;
 
-        // 频道条目
+        if (collapsed) return yOffset;
+
         for (ChatChannel channel : channels) {
             if (yOffset >= contentTop && yOffset + LINE_HEIGHT <= contentBottom) {
-                // 高亮当前选中频道
-                if (channel.getChannelId().equals(activeChannelId)) {
-                    gg.fill(x + 2, yOffset - 1, x + width - 2, yOffset + 13, 0xFF4a6fa5);
+                boolean isSelected = channel.getChannelId().equals(activeChannelId);
+                boolean isHovered = !isSelected
+                        && mouseX >= x && mouseX < x + width
+                        && mouseY >= yOffset && mouseY < yOffset + LINE_HEIGHT;
+
+                // 选中/悬停背景
+                if (isSelected) {
+                    gg.fill(x + 4, yOffset, x + width - 4, yOffset + LINE_HEIGHT, UIStyles.CHAN_SELECTED);
+                    // 左侧强调竖条
+                    UIStyles.drawAccentBar(gg, x, yOffset, LINE_HEIGHT);
+                } else if (isHovered) {
+                    gg.fill(x + 4, yOffset, x + width - 4, yOffset + LINE_HEIGHT, UIStyles.CHAN_HOVER);
+                    UIStyles.drawHoverBar(gg, x, yOffset, LINE_HEIGHT);
                 }
 
                 if (isNotification) {
-                    // 通知频道：仅显示分类名，使用金色调
+                    // 通知频道：显示完整频道名（按像素宽度截断）
                     String displayName = channel.getDisplayName();
-                    if (displayName.length() > 8) {
-                        displayName = displayName.substring(0, 8) + "..";
-                    }
-                    gg.drawString(mc.font, displayName, x + 10, yOffset, 0xFFf0a500);
+                    int maxNameW = width - PADDING * 2 - 12;
+                    displayName = trimToFit(mc, displayName, maxNameW);
+                    int nameColor = isSelected ? UIStyles.TEXT_WHITE : UIStyles.COLOR_WARN;
+                    gg.drawString(mc.font, displayName, x + PADDING + 6, yOffset + 5, nameColor);
                 } else {
-                    // 普通频道：显示 [P]/[N]/[E] 标记 + 频道名 + 群号
-                    String marker = switch (channel.getAccess()) {
-                        case PUBLIC -> "[P]";
-                        case NORMAL -> "[N]";
-                        case ENCRYPTED -> "[E]";
-                    };
-
-                    String channelName = channel.getDisplayName();
-                    if (channelName.length() > 6) {
-                        channelName = channelName.substring(0, 6) + "..";
-                    }
-                    gg.drawString(mc.font, marker + channelName, x + 10, yOffset, 0xFFffffff);
-
+                    // 普通频道：# 前缀 + 名称 + 右侧群号
                     String groupNo = "#" + channel.getGroupNumber();
-                    gg.drawString(mc.font, groupNo, x + width - 30, yOffset, 0xFFaaaaaa);
+                    int gnWidth = mc.font.width(groupNo);
+                    int maxNameW = width - PADDING * 2 - 12 - gnWidth - 10;
+                    String prefix = "# ";
+                    String channelName = trimToFit(mc, prefix + channel.getDisplayName(), maxNameW);
+                    int nameColor = isSelected ? UIStyles.TEXT_WHITE : (isHovered ? UIStyles.TEXT_PRIMARY : UIStyles.TEXT_SECONDARY);
+                    gg.drawString(mc.font, channelName, x + PADDING + 6, yOffset + 5, nameColor);
+                    gg.drawString(mc.font, groupNo, x + width - gnWidth - 8, yOffset + 5, UIStyles.TEXT_FAINT);
                 }
             }
             renderedRows.add(new RowEntry(RowType.CHANNEL, channel, yOffset, LINE_HEIGHT));
             yOffset += LINE_HEIGHT;
         }
-
         return yOffset;
     }
 
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button != 0 || !isMouseOver((int) mouseX, (int) mouseY)) {
-            return false;
+    private void renderFooterButton(GuiGraphics gg, Minecraft mc, int btnY, String label, int color, int mouseX, int mouseY) {
+        boolean hovered = mouseX >= x + 4 && mouseX < x + width - 4
+                && mouseY >= btnY && mouseY < btnY + 20;
+        if (hovered) {
+            gg.fill(x + 4, btnY, x + width - 4, btnY + 20, UIStyles.BG_HOVER);
         }
+        gg.drawString(mc.font, label, x + PADDING + 4, btnY + 6, color);
+    }
+
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (button != 0 || !isMouseOver((int) mouseX, (int) mouseY)) return false;
 
         if (width <= 24 || parent.isChannelListCollapsed()) {
-            if (mouseY >= y + height - 20) {
-                openJoinDialog();
-            } else if (mouseY >= y + height - 36) {
-                openCreateDialog();
-            } else {
-                parent.toggleChannelList();
-            }
+            if (mouseY >= y + height - 20) openJoinDialog();
+            else if (mouseY >= y + height - 36) openCreateDialog();
+            else parent.toggleChannelList();
             return true;
         }
 
         int localY = (int) mouseY - y;
-        if (localY <= HEADER_HEIGHT && mouseX >= x + width - 24) {
-            parent.toggleChannelList();
-            return true;
-        }
+        if (localY <= HEADER_HEIGHT && mouseX >= x + width - 24) { parent.toggleChannelList(); return true; }
 
-        if (localY >= height - FOOTER_HEIGHT && localY < height - 20) {
-            openCreateDialog();
-            return true;
-        }
+        int footerY = height - FOOTER_HEIGHT;
+        if (localY >= footerY && localY < footerY + 22) { openCreateDialog(); return true; }
+        if (localY >= footerY + 22) { openJoinDialog(); return true; }
 
-        if (localY >= height - 20) {
-            openJoinDialog();
-            return true;
-        }
-
-        // 命中测试 renderedRows
         for (RowEntry row : renderedRows) {
             if (mouseY >= row.y && mouseY < row.y + row.height) {
                 switch (row.type) {
                     case GROUP_HEADER -> { groupCollapsed = !groupCollapsed; return true; }
                     case PRIVATE_HEADER -> { privateCollapsed = !privateCollapsed; return true; }
                     case NOTIFY_HEADER -> { notifyCollapsed = !notifyCollapsed; return true; }
-                    case CHANNEL -> {
-                        if (row.channel != null) {
-                            parent.setCurrentChannelId(row.channel.getChannelId());
-                            return true;
-                        }
-                    }
+                    case CHANNEL -> { if (row.channel != null) { parent.setCurrentChannelId(row.channel.getChannelId()); return true; } }
                 }
             }
         }
-
         return true;
     }
 
-    @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
-        if (!isMouseOver((int) mouseX, (int) mouseY)) {
-            return false;
-        }
-        if (width <= 24 || parent.isChannelListCollapsed()) {
-            return false;
-        }
-        scrollOffset -= (int) (delta * 10);
+        if (!isMouseOver((int) mouseX, (int) mouseY)) return false;
+        if (width <= 24 || parent.isChannelListCollapsed()) return false;
+
+        scrollOffset -= (int) (delta * 12);
         scrollOffset = Math.max(0, scrollOffset);
-
-        // 计算最大可滚动量
-        int totalContentHeight = computeTotalContentHeight();
-        int viewportHeight = height - HEADER_HEIGHT - FOOTER_HEIGHT;
-        int maxScroll = Math.max(0, totalContentHeight - viewportHeight);
+        int maxScroll = Math.max(0, computeTotalContentHeight() - (height - HEADER_HEIGHT - FOOTER_HEIGHT));
         scrollOffset = Math.min(scrollOffset, maxScroll);
-
         return true;
     }
 
     private int computeTotalContentHeight() {
         List<ChatChannel> allChannels = getVisibleChannelsForCurrentPlayer();
-        List<ChatChannel> groups = new ArrayList<>();
-        List<ChatChannel> privates = new ArrayList<>();
-        List<ChatChannel> notifications = new ArrayList<>();
-
+        List<ChatChannel> groups = new ArrayList<>(), privates = new ArrayList<>(), notifications = new ArrayList<>();
         for (ChatChannel ch : allChannels) {
             switch (ch.getType()) {
                 case NOTIFICATION -> notifications.add(ch);
@@ -250,87 +227,66 @@ public class ChannelListWidget extends AbstractChatWidget {
                 default -> groups.add(ch);
             }
         }
-
-        int total = 0;
-        // 群组
-        total += GROUP_HEADER_HEIGHT;
+        int total = SECTION_HEIGHT;
         if (!groupCollapsed) total += groups.size() * LINE_HEIGHT;
-        // 私聊
-        total += GROUP_HEADER_HEIGHT;
+        total += SECTION_HEIGHT;
         if (!privateCollapsed) total += privates.size() * LINE_HEIGHT;
-        // 通知
         if (SimukraftDetector.isAvailable() && !notifications.isEmpty()) {
-            total += GROUP_HEADER_HEIGHT;
+            total += SECTION_HEIGHT;
             if (!notifyCollapsed) total += notifications.size() * LINE_HEIGHT;
         }
-        return total;
+        return total + 8;
     }
 
     private List<ChatChannel> getVisibleChannelsForCurrentPlayer() {
         var player = Minecraft.getInstance().player;
-        if (player == null) {
-            return parent.getChatManager().getChannelManager().getAllActiveChannels();
-        }
+        if (player == null) return parent.getChatManager().getChannelManager().getAllActiveChannels();
         return parent.getChatManager().getChannelManager().getVisibleChannelsForPlayer(player.getUUID());
     }
 
-    private void openCreateDialog() {
-        Minecraft.getInstance().setScreen(new CreateGroupScreen(parent, this));
-    }
-
-    private void openJoinDialog() {
-        Minecraft.getInstance().setScreen(new JoinGroupScreen(parent, this));
-    }
+    private void openCreateDialog() { Minecraft.getInstance().setScreen(new CreateGroupScreen(parent, this)); }
+    private void openJoinDialog() { Minecraft.getInstance().setScreen(new JoinGroupScreen(parent, this)); }
 
     public void createGroupForCurrentPlayer(String requestedName, ChatChannel.GroupAccess access, String password) {
         var player = Minecraft.getInstance().player;
-        if (player == null) {
-            return;
-        }
-
+        if (player == null) return;
         String displayName = requestedName == null || requestedName.isBlank()
                 ? "群组" + (parent.getChatManager().getChannelManager().getChannelCount() + 1)
                 : requestedName.trim();
-
         ChatNetwork.requestCreateGroup(displayName, access, password);
     }
 
     public boolean joinGroupForCurrentPlayer(String query, String password) {
-        var player = Minecraft.getInstance().player;
-        if (player == null) {
-            return false;
-        }
-
-        if (query == null || query.isBlank()) {
-            return false;
-        }
-
+        if (Minecraft.getInstance().player == null) return false;
+        if (query == null || query.isBlank()) return false;
         ChatNetwork.requestJoinGroup(query, password);
         return true;
     }
 
     public void selectChannel(int index) {
         List<ChatChannel> channels = getVisibleChannelsForCurrentPlayer();
-        if (index < 0 || index >= channels.size()) {
-            return;
-        }
-
+        if (index < 0 || index >= channels.size()) return;
         selectedIndex = index;
         parent.setCurrentChannelId(channels.get(index).getChannelId());
     }
 
-    public int getSelectedIndex() {
-        return selectedIndex;
+    public int getSelectedIndex() { return selectedIndex; }
+
+    /** 按像素宽度截断文字，超出部分用 .. 替代 */
+    private static String trimToFit(Minecraft mc, String text, int maxWidth) {
+        if (mc.font.width(text) <= maxWidth) return text;
+        String ellipsis = "..";
+        int ellipsisW = mc.font.width(ellipsis);
+        while (text.length() > 1 && mc.font.width(text) + ellipsisW > maxWidth) {
+            text = text.substring(0, text.length() - 1);
+        }
+        return text + ellipsis;
     }
 
-    // === 行条目类型 ===
-
-    private enum RowType {
-        GROUP_HEADER,
-        PRIVATE_HEADER,
-        NOTIFY_HEADER,
-        CHANNEL
+    private boolean isMouseOver(int mx, int my) {
+        return mx >= x && mx < x + width && my >= y && my < y + height;
     }
 
+    private enum RowType { GROUP_HEADER, PRIVATE_HEADER, NOTIFY_HEADER, CHANNEL }
     private record RowEntry(RowType type, ChatChannel channel, int y, int height) {}
 }

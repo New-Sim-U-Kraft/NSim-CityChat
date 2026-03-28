@@ -7,8 +7,10 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraftforge.network.NetworkEvent;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -119,7 +121,19 @@ public class ChannelSnapshotPacket {
             rebuilt.add(channel);
         }
 
-        ChatManager.getInstance().getChannelManager().replaceFromSnapshot(rebuilt);
+        // 注册成员名字到客户端 ChatManager（解决 UUID 显示问题）
+        ChatManager cm = ChatManager.getInstance();
+        for (ChannelEntry entry : msg.channels) {
+            if (entry.memberNames != null) {
+                for (var nameEntry : entry.memberNames.entrySet()) {
+                    if (cm.getUser(nameEntry.getKey()) == null) {
+                        cm.registerUser(nameEntry.getKey(), nameEntry.getValue());
+                    }
+                }
+            }
+        }
+
+        cm.getChannelManager().replaceFromSnapshot(rebuilt);
         ctx.setPacketHandled(true);
     }
 
@@ -160,18 +174,30 @@ public class ChannelSnapshotPacket {
         List<UUID> members;
         List<UUID> admins;
         List<MessageEntry> messages;
+        /** 成员 UUID → 玩家名映射（服务端解析后下发） */
+        Map<UUID, String> memberNames;
 
         static ChannelEntry fromChannel(ChatChannel channel) {
             ChannelEntry entry = new ChannelEntry();
             entry.channelId = channel.getChannelId();
             entry.groupNumber = channel.getGroupNumber();
-            entry.displayName = channel.getDisplayName();
+            entry.displayName = resolveNotifyDisplayName(channel);
             entry.description = channel.getDescription();
             entry.type = channel.getType();
             entry.access = channel.getAccess();
             entry.ownerId = channel.getOwnerId();
             entry.members = new ArrayList<>(channel.getMembers());
             entry.admins = new ArrayList<>(channel.getAdmins());
+
+            // 解析成员名字
+            entry.memberNames = new HashMap<>();
+            ChatManager cm = ChatManager.getInstance();
+            for (UUID memberId : entry.members) {
+                var user = cm.getUser(memberId);
+                if (user != null && user.getDisplayName() != null && !user.getDisplayName().isBlank()) {
+                    entry.memberNames.put(memberId, user.getDisplayName());
+                }
+            }
 
             // 取最近 MAX_SNAPSHOT_MESSAGES 条消息
             List<ChatMessage> history = channel.getMessageHistory(MAX_SNAPSHOT_MESSAGES);
@@ -207,6 +233,13 @@ public class ChannelSnapshotPacket {
                 buf.writeUUID(admin);
             }
 
+            // 序列化成员名字映射
+            buf.writeVarInt(memberNames.size());
+            for (var e : memberNames.entrySet()) {
+                buf.writeUUID(e.getKey());
+                buf.writeUtf(e.getValue(), 64);
+            }
+
             // 序列化消息历史
             buf.writeVarInt(messages.size());
             for (MessageEntry msg : messages) {
@@ -238,6 +271,15 @@ public class ChannelSnapshotPacket {
             }
             entry.admins = new ArrayList<>(adminSet);
 
+            // 反序列化成员名字映射
+            int nameCount = buf.readVarInt();
+            entry.memberNames = new HashMap<>(nameCount);
+            for (int i = 0; i < nameCount; i++) {
+                UUID uid = buf.readUUID();
+                String name = buf.readUtf(64);
+                entry.memberNames.put(uid, name);
+            }
+
             // 反序列化消息历史
             int msgSize = buf.readVarInt();
             entry.messages = new ArrayList<>(msgSize);
@@ -246,6 +288,58 @@ public class ChannelSnapshotPacket {
             }
 
             return entry;
+        }
+
+        /**
+         * 通知频道：每次快照时尝试用最新城市名刷新显示名。
+         * 频道 ID 格式 sk_notify_<cityId>_<categoryKey>，
+         * 如果当前显示名还包含 UUID 样式的前缀，说明创建时城市名没解析到，现在重试。
+         */
+        private static String resolveNotifyDisplayName(ChatChannel channel) {
+            if (channel.getType() != ChatChannel.ChannelType.NOTIFICATION) {
+                return channel.getDisplayName();
+            }
+
+            String id = channel.getChannelId();
+            if (!id.startsWith("sk_notify_")) {
+                return channel.getDisplayName();
+            }
+
+            // 解析 cityId 和 categoryKey：sk_notify_<cityId>_<categoryKey>
+            String rest = id.substring("sk_notify_".length());
+            // cityId 可能是 UUID (36 chars) 或 "global"
+            String cityIdStr;
+            String categoryKey;
+            if (rest.startsWith("global_")) {
+                cityIdStr = "global";
+                categoryKey = rest.substring("global_".length());
+            } else if (rest.length() > 37 && rest.charAt(36) == '_') {
+                cityIdStr = rest.substring(0, 36);
+                categoryKey = rest.substring(37);
+            } else {
+                return channel.getDisplayName();
+            }
+
+            // 尝试获取城市名
+            var bridge = com.lokins.citychat.integration.CityRoleBridge.getInstance();
+            String cityName = "global".equals(cityIdStr) ? "全局" : bridge.getCityName(cityIdStr);
+            if (cityName == null || cityName.isBlank()) {
+                // 仍然解析不到，保留现有名称
+                return channel.getDisplayName();
+            }
+
+            // 通过 MessageCategory.fromKey 解析显示名（自动兼容新旧 key）
+            String categoryLabel = com.xiaoliang.simukraft.notification.MessageCategory
+                    .fromKey(categoryKey.toUpperCase()).getDisplayName();
+
+            String newName = cityName + categoryLabel;
+
+            // 如果名字变了，同时更新源频道对象（持久化修复）
+            if (!newName.equals(channel.getDisplayName())) {
+                channel.setDisplayName(newName);
+            }
+
+            return newName;
         }
     }
 }

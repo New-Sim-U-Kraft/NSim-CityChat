@@ -18,7 +18,7 @@ import java.util.UUID;
  * S→C 包使用 consumerMainThread（确保客户端主线程执行 UI 更新）。
  */
 public class ChatNetwork {
-    private static final String PROTOCOL_VERSION = "4";
+    private static final String PROTOCOL_VERSION = "5";
     private static boolean registered = false;
 
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(

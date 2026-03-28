@@ -10,170 +10,176 @@ import java.util.Date;
 import java.util.List;
 
 /**
- * 聊天消息显示面板 - 支持动态布局、滚动条、时间戳、点击上下文菜单
+ * 聊天消息面板 —— Discord 风格
  */
-public class ChatPanelWidget extends AbstractChatWidget {
-    private static final int HEADER_HEIGHT = 24;
-    private static final int INFO_BUTTON_WIDTH = 42;
-    private static final int MESSAGE_HEIGHT = 14;
-    private static final int SCROLLBAR_WIDTH = 3;
+public class ChatPanelWidget {
+    private static final int HEADER_HEIGHT = 28;
+    private static final int MESSAGE_HEIGHT = 16;
+    private static final int SCROLLBAR_WIDTH = 4;
+    private static final int PADDING = 8;
+    private static final SimpleDateFormat TIME_FORMAT = new SimpleDateFormat("HH:mm");
+
+    private final int x, y, width, height;
+    private final ChatScreen parent;
 
     private int scrollOffset = 0;
     private MessageContextMenu contextMenu;
-
-    /** 记录上一次渲染的消息位置，用于点击检测 */
     private final List<RenderedMessage> renderedMessages = new ArrayList<>();
+    private final CCButton infoButton;
 
     private record RenderedMessage(ChatMessage message, int yPos) {}
 
-    private static final SimpleDateFormat TIME_FORMAT = new SimpleDateFormat("HH:mm");
-
     public ChatPanelWidget(int x, int y, int width, int height, ChatScreen parent) {
-        super(x, y, width, height, parent);
+        this.x = x;
+        this.y = y;
+        this.width = width;
+        this.height = height;
+        this.parent = parent;
+
+        this.infoButton = new CCButton(x + width - 50, y + 4, 42, 20, "信息",
+                b -> parent.openGroupInfoForCurrentChannel());
     }
 
     private int getVisibleMessageCount() {
-        int availableHeight = height - HEADER_HEIGHT - 6;
-        return Math.max(1, availableHeight / MESSAGE_HEIGHT);
+        return Math.max(1, (height - HEADER_HEIGHT - PADDING * 2) / MESSAGE_HEIGHT);
     }
 
-    @Override
-    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(guiGraphics, 0xFF1a1a1a);
-        renderBorder(guiGraphics, 0xFF4a4a4a);
+    public void render(GuiGraphics gg, int mouseX, int mouseY, float pt) {
+        // 主内容区背景
+        gg.fill(x, y, x + width, y + height, UIStyles.BG_PRIMARY);
 
         String currentChannel = parent.getCurrentChannelId();
         var channel = parent.getChatManager().getChannelManager().getChannel(currentChannel);
 
-        renderHeader(guiGraphics, channel);
+        renderHeader(gg, channel, mouseX, mouseY, pt);
 
         if (channel == null) {
-            guiGraphics.drawString(Minecraft.getInstance().font, "暂无群组，先在左侧创建或加入。", x + 8, y + HEADER_HEIGHT + 8, 0xFFBDBDBD);
+            gg.drawString(Minecraft.getInstance().font,
+                    "暂无群组，先在左侧创建或加入。",
+                    x + PADDING, y + HEADER_HEIGHT + 12, UIStyles.TEXT_MUTED);
             return;
         }
 
-        List<ChatMessage> channelMessages = channel.getMessageHistory();
+        List<ChatMessage> messages = channel.getMessageHistory();
         int visibleCount = getVisibleMessageCount();
-
-        // clamp scrollOffset
-        int maxScroll = Math.max(0, channelMessages.size() - visibleCount);
+        int maxScroll = Math.max(0, messages.size() - visibleCount);
         scrollOffset = Math.min(scrollOffset, maxScroll);
         scrollOffset = Math.max(0, scrollOffset);
 
-        int startIdx = Math.max(0, channelMessages.size() - visibleCount - scrollOffset);
-        int endIdx = Math.min(channelMessages.size(), startIdx + visibleCount);
+        int startIdx = Math.max(0, messages.size() - visibleCount - scrollOffset);
+        int endIdx = Math.min(messages.size(), startIdx + visibleCount);
 
         renderedMessages.clear();
-        int yOffset = y + HEADER_HEIGHT + 6;
+        int yOffset = y + HEADER_HEIGHT + PADDING;
         for (int i = startIdx; i < endIdx; i++) {
-            ChatMessage msg = channelMessages.get(i);
-            if (yOffset >= y + HEADER_HEIGHT && yOffset < y + height - 5) {
-                renderMessage(guiGraphics, msg, yOffset);
+            ChatMessage msg = messages.get(i);
+            if (yOffset >= y + HEADER_HEIGHT && yOffset < y + height - PADDING) {
+                // 悬停高亮
+                if (mouseY >= yOffset && mouseY < yOffset + MESSAGE_HEIGHT
+                        && mouseX >= x && mouseX < x + width - SCROLLBAR_WIDTH) {
+                    gg.fill(x, yOffset - 1, x + width - SCROLLBAR_WIDTH - 2, yOffset + MESSAGE_HEIGHT - 1,
+                            UIStyles.BG_HOVER);
+                }
+                renderMessage(gg, msg, yOffset);
                 renderedMessages.add(new RenderedMessage(msg, yOffset));
             }
             yOffset += MESSAGE_HEIGHT;
         }
 
-        // 渲染滚动条
-        renderScrollbar(guiGraphics, channelMessages.size(), visibleCount);
+        renderScrollbar(gg, messages.size(), visibleCount);
     }
 
-    private void renderHeader(GuiGraphics guiGraphics, Object channelObj) {
-        guiGraphics.fill(x, y, x + width, y + HEADER_HEIGHT, 0xFF222833);
-        guiGraphics.fill(x, y + HEADER_HEIGHT - 1, x + width, y + HEADER_HEIGHT, 0xFF3E4A5A);
+    private void renderHeader(GuiGraphics gg, Object channelObj, int mouseX, int mouseY, float pt) {
+        gg.fill(x, y, x + width, y + HEADER_HEIGHT, UIStyles.BG_HEADER);
+        gg.fill(x, y + HEADER_HEIGHT - 1, x + width, y + HEADER_HEIGHT, UIStyles.DIVIDER);
 
-        if (channelObj instanceof com.lokins.citychat.data.ChatChannel channel) {
-            String title = channel.getDisplayName() + "（" + channel.getMemberCount() + "）";
-            guiGraphics.drawString(Minecraft.getInstance().font, title, x + 8, y + 8, 0xFFFFFFFF);
-        } else {
-            guiGraphics.drawString(Minecraft.getInstance().font, "未选择群组", x + 8, y + 8, 0xFFBDBDBD);
-        }
-
-        int btnX = x + width - INFO_BUTTON_WIDTH - 6;
-        int btnY = y + 4;
-        guiGraphics.fill(btnX, btnY, btnX + INFO_BUTTON_WIDTH, btnY + 16, 0xFF3A4658);
-        guiGraphics.drawCenteredString(Minecraft.getInstance().font, "信息", btnX + INFO_BUTTON_WIDTH / 2, btnY + 4, 0xFFFFFFFF);
-    }
-
-    private void renderMessage(GuiGraphics guiGraphics, ChatMessage message, int yPos) {
         Minecraft mc = Minecraft.getInstance();
-        String senderName = message.getSenderName();
-        String content = message.getContent();
-        String timeStr = "[" + TIME_FORMAT.format(new Date(message.getTimestamp())) + "]";
+        if (channelObj instanceof com.lokins.citychat.data.ChatChannel channel) {
+            boolean isNotify = channel.isNotificationChannel();
+            String prefix = isNotify ? "📢 " : "# ";
+            gg.drawString(mc.font, prefix + channel.getDisplayName(),
+                    x + PADDING, y + 6, UIStyles.TEXT_WHITE);
 
-        int textX = x + 5;
-        // 时间戳 - 灰色
-        guiGraphics.drawString(mc.font, timeStr, textX, yPos, 0xFF888888);
-        textX += mc.font.width(timeStr) + 4;
-        // 玩家名 - 蓝色
-        String nameStr = senderName + ":";
-        guiGraphics.drawString(mc.font, nameStr, textX, yPos, 0xFFaaaaff);
-        textX += mc.font.width(nameStr) + 4;
-        // 内容 - 白色
-        guiGraphics.drawString(mc.font, content, textX, yPos, 0xFFffffff);
+            if (isNotify) {
+                gg.drawString(mc.font, "通知公告 · 只读",
+                        x + PADDING, y + 16, UIStyles.TEXT_FAINT);
+            } else {
+                String memberInfo = channel.getMemberCount() + " 名成员";
+                gg.drawString(mc.font, memberInfo,
+                        x + PADDING, y + 16, UIStyles.TEXT_FAINT);
+                // 仅非通知频道显示信息按钮
+                infoButton.render(gg, mouseX, mouseY, pt);
+            }
+        } else {
+            gg.drawString(mc.font, "未选择群组", x + PADDING, y + 10, UIStyles.TEXT_MUTED);
+        }
     }
 
-    private void renderScrollbar(GuiGraphics guiGraphics, int totalMessages, int visibleCount) {
-        if (totalMessages <= visibleCount) {
-            return;
-        }
+    private void renderMessage(GuiGraphics gg, ChatMessage message, int yPos) {
+        Minecraft mc = Minecraft.getInstance();
+        int textX = x + PADDING;
+
+        // 时间戳
+        String timeStr = TIME_FORMAT.format(new Date(message.getTimestamp()));
+        gg.drawString(mc.font, timeStr, textX, yPos, UIStyles.TEXT_FAINT);
+        textX += mc.font.width(timeStr) + 6;
+
+        // 发送者
+        String nameStr = message.getSenderName();
+        gg.drawString(mc.font, nameStr, textX, yPos, UIStyles.TEXT_LINK);
+        textX += mc.font.width(nameStr) + 6;
+
+        // 消息内容
+        gg.drawString(mc.font, message.getContent(), textX, yPos, UIStyles.TEXT_PRIMARY);
+    }
+
+    private void renderScrollbar(GuiGraphics gg, int totalMessages, int visibleCount) {
+        if (totalMessages <= visibleCount) return;
 
         int trackX = x + width - SCROLLBAR_WIDTH - 1;
-        int trackY = y + HEADER_HEIGHT;
-        int trackHeight = height - HEADER_HEIGHT;
+        int trackY = y + HEADER_HEIGHT + 2;
+        int trackHeight = height - HEADER_HEIGHT - 4;
 
-        // 轨道
-        guiGraphics.fill(trackX, trackY, trackX + SCROLLBAR_WIDTH, trackY + trackHeight, 0xFF333333);
-
-        // 滑块
         float ratio = (float) visibleCount / totalMessages;
-        int thumbHeight = Math.max(10, (int) (trackHeight * ratio));
-
+        int thumbHeight = Math.max(16, (int) (trackHeight * ratio));
         int maxScroll = totalMessages - visibleCount;
         float scrollRatio = maxScroll > 0 ? (float) scrollOffset / maxScroll : 0;
-        // scrollOffset 越大越往上，滑块应该越靠上
         int thumbY = trackY + (int) ((trackHeight - thumbHeight) * (1f - scrollRatio));
 
-        guiGraphics.fill(trackX, thumbY, trackX + SCROLLBAR_WIDTH, thumbY + thumbHeight, 0xFF888888);
+        UIStyles.drawScrollbar(gg, trackX, trackY, SCROLLBAR_WIDTH, trackHeight, thumbY, thumbHeight, false);
+    }
+
+    private boolean isCurrentChannelNotification() {
+        String channelId = parent.getCurrentChannelId();
+        if (channelId == null) return false;
+        var ch = parent.getChatManager().getChannelManager().getChannel(channelId);
+        return ch != null && ch.isNotificationChannel();
     }
 
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        // 先检查上下文菜单
         if (contextMenu != null && contextMenu.isVisible()) {
-            if (contextMenu.mouseClicked(mouseX, mouseY, button)) {
-                return true;
-            }
+            if (contextMenu.mouseClicked(mouseX, mouseY, button)) return true;
         }
 
-        if (!isMouseOver((int) mouseX, (int) mouseY)) {
-            return false;
-        }
+        if (!isMouseOver((int) mouseX, (int) mouseY)) return false;
 
-        // 左键点击信息按钮
-        if (button == 0) {
-            int btnX = x + width - INFO_BUTTON_WIDTH - 6;
-            int btnY = y + 4;
-            boolean clickInfo = mouseX >= btnX && mouseX <= btnX + INFO_BUTTON_WIDTH && mouseY >= btnY && mouseY <= btnY + 16;
-            if (clickInfo) {
-                parent.openGroupInfoForCurrentChannel();
-                return true;
-            }
-        }
+        // 通知频道：无信息按钮、无右键菜单
+        if (isCurrentChannelNotification()) return false;
 
-        // 右键点击消息 -> 弹出上下文菜单
+        if (button == 0 && infoButton.mouseClicked(mouseX, mouseY, button)) return true;
+
         if (button == 1) {
             for (RenderedMessage rm : renderedMessages) {
-                if (mouseY >= rm.yPos && mouseY < rm.yPos + MESSAGE_HEIGHT && mouseX >= x && mouseX < x + width - SCROLLBAR_WIDTH) {
+                if (mouseY >= rm.yPos && mouseY < rm.yPos + MESSAGE_HEIGHT
+                        && mouseX >= x && mouseX < x + width - SCROLLBAR_WIDTH) {
                     contextMenu = new MessageContextMenu((int) mouseX, (int) mouseY, rm.message, parent);
                     return true;
                 }
             }
         }
-
         return false;
     }
 
-    @Override
     public boolean mouseScrolled(double pMouseX, double pMouseY, double pDelta) {
         if (isMouseOver((int) pMouseX, (int) pMouseY)) {
             scrollOffset = Math.max(0, (int) (scrollOffset - pDelta));
@@ -182,24 +188,17 @@ public class ChatPanelWidget extends AbstractChatWidget {
         return false;
     }
 
-    public void updateChannel(String channelId) {
-        scrollOffset = 0;
-        contextMenu = null;
-    }
+    public void updateChannel(String channelId) { scrollOffset = 0; contextMenu = null; }
 
     public void closeContextMenu() {
-        if (contextMenu != null) {
-            contextMenu.close();
-            contextMenu = null;
-        }
+        if (contextMenu != null) { contextMenu.close(); contextMenu = null; }
     }
 
-    /**
-     * 由 ChatScreen 在所有组件渲染完毕后调用，保证菜单在最顶层。
-     */
-    public void renderContextMenu(GuiGraphics guiGraphics) {
-        if (contextMenu != null && contextMenu.isVisible()) {
-            contextMenu.render(guiGraphics);
-        }
+    public void renderContextMenu(GuiGraphics gg) {
+        if (contextMenu != null && contextMenu.isVisible()) contextMenu.render(gg);
+    }
+
+    private boolean isMouseOver(int mx, int my) {
+        return mx >= x && mx < x + width && my >= y && my < y + height;
     }
 }

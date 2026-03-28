@@ -4,11 +4,7 @@
   "compatibilityLevel": "JAVA_17",
   "minVersion": "0.8",
   "refmap": "cc.refmap.json",
-  "mixins": [
-    "simukraft.CityDataAccessMixin",
-    "simukraft.NotificationServiceManagerMixin",
-    "simukraft.NullNotificationServiceMixin"
-  ],
+  "mixins": [],
   "client": [],
   "injectors": {
     "defaultRequire": 0

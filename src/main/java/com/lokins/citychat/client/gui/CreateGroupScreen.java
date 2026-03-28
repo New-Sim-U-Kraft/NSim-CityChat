@@ -7,22 +7,21 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
 /**
- * 创建群组弹层：支持公开/普通/加密群组。
+ * 创建群组弹层 —— 使用 LDLib 纹理渲染
  */
 public class CreateGroupScreen extends Screen {
-    private static final int PANEL_WIDTH = 300;
-    private static final int PANEL_HEIGHT = 176;
+    private static final int DW = 300, DH = 176;
 
     private final ChatScreen parentScreen;
     private final ChannelListWidget channelListWidget;
 
     private EditBox nameInput;
     private EditBox passwordInput;
-    private ModButton createButton;
+    private CCButton modeBtn, createBtn, cancelBtn;
 
     private ChatChannel.GroupAccess access = ChatChannel.GroupAccess.NORMAL;
     private String hintText = "支持中文/英文/数字/空格/_/-，长度 1-24";
-    private int hintColor = 0xFFBDBDBD;
+    private int hintColor = UIStyles.TEXT_SECONDARY;
 
     public CreateGroupScreen(ChatScreen parentScreen, ChannelListWidget channelListWidget) {
         super(Component.literal("创建群组"));
@@ -32,57 +31,43 @@ public class CreateGroupScreen extends Screen {
 
     @Override
     protected void init() {
-        int panelX = (this.width - PANEL_WIDTH) / 2;
-        int panelY = (this.height - PANEL_HEIGHT) / 2;
+        int px = (this.width - DW) / 2, py = (this.height - DH) / 2;
 
-        this.nameInput = new EditBox(this.font, panelX + 12, panelY + 24, PANEL_WIDTH - 24, 20, Component.literal("群组名称"));
-        this.nameInput.setMaxLength(24);
-        this.nameInput.setResponder(value -> validateForm());
-        this.addWidget(this.nameInput);
+        nameInput = new EditBox(this.font, px + 12, py + 24, DW - 24, 20, Component.literal("群组名称"));
+        nameInput.setMaxLength(24);
+        nameInput.setResponder(v -> validateForm());
+        this.addWidget(nameInput);
 
-        this.passwordInput = new EditBox(this.font, panelX + 12, panelY + 84, PANEL_WIDTH - 24, 20, Component.literal("加密群密码"));
-        this.passwordInput.setMaxLength(24);
-        this.passwordInput.setResponder(value -> validateForm());
-        this.addWidget(this.passwordInput);
+        passwordInput = new EditBox(this.font, px + 12, py + 84, DW - 24, 20, Component.literal("加密群密码"));
+        passwordInput.setMaxLength(24);
+        passwordInput.setResponder(v -> validateForm());
+        this.addWidget(passwordInput);
 
-        this.setInitialFocus(this.nameInput);
+        this.setInitialFocus(nameInput);
 
-        this.addRenderableWidget(ModButton.modBuilder(Component.literal(modeLabel()), btn -> {
+        modeBtn = new CCButton(px + 12, py + 52, 132, 20, modeLabel(), b -> {
             switchAccessMode();
-            btn.setMessage(Component.literal(modeLabel()));
+            b.setText(modeLabel());
             validateForm();
-        }).bounds(panelX + 12, panelY + 52, 132, 20).build());
+        });
 
-        this.createButton = this.addRenderableWidget(ModButton.modBuilder(Component.literal("创建"), btn -> tryCreate())
-                .bounds(panelX + 12, panelY + 140, 112, 22)
-                .build());
-
-        this.addRenderableWidget(ModButton.modBuilder(Component.literal("取消"), btn -> this.minecraft.setScreen(parentScreen))
-                .bounds(panelX + PANEL_WIDTH - 124, panelY + 140, 112, 22)
-                .build());
+        createBtn = new CCButton(px + 12, py + 140, 112, 22, "创建", b -> tryCreate(), true);
+        cancelBtn = new CCButton(px + DW - 124, py + 140, 112, 22, "取消",
+                b -> this.minecraft.setScreen(parentScreen));
 
         validateForm();
     }
 
     private void switchAccessMode() {
-        if (access == ChatChannel.GroupAccess.PUBLIC) {
-            access = ChatChannel.GroupAccess.NORMAL;
-        } else if (access == ChatChannel.GroupAccess.NORMAL) {
-            access = ChatChannel.GroupAccess.ENCRYPTED;
-        } else {
-            access = ChatChannel.GroupAccess.PUBLIC;
-        }
+        if (access == ChatChannel.GroupAccess.PUBLIC) access = ChatChannel.GroupAccess.NORMAL;
+        else if (access == ChatChannel.GroupAccess.NORMAL) access = ChatChannel.GroupAccess.ENCRYPTED;
+        else access = ChatChannel.GroupAccess.PUBLIC;
     }
 
-    private String modeLabel() {
-        return "模式: " + access.getDisplayName();
-    }
+    private String modeLabel() { return "模式: " + access.getDisplayName(); }
 
     private void tryCreate() {
-        if (!validateForm()) {
-            return;
-        }
-
+        if (!validateForm()) return;
         String password = access == ChatChannel.GroupAccess.ENCRYPTED ? passwordInput.getValue().trim() : "";
         channelListWidget.createGroupForCurrentPlayer(nameInput.getValue().trim(), access, password);
         this.minecraft.setScreen(parentScreen);
@@ -92,87 +77,78 @@ public class CreateGroupScreen extends Screen {
         String name = nameInput.getValue() == null ? "" : nameInput.getValue().trim();
 
         if (name.isEmpty()) {
-            hintText = "群组名不能为空";
-            hintColor = 0xFFE07070;
-            createButton.active = false;
-            return false;
+            hintText = "群组名不能为空"; hintColor = UIStyles.COLOR_ERR;
+            createBtn.setActive(false); return false;
         }
-
         if (name.length() > 24) {
-            hintText = "群组名长度不能超过 24";
-            hintColor = 0xFFE07070;
-            createButton.active = false;
-            return false;
+            hintText = "群组名长度不能超过 24"; hintColor = UIStyles.COLOR_ERR;
+            createBtn.setActive(false); return false;
         }
-
         if (!name.matches("[\\u4e00-\\u9fa5A-Za-z0-9_\\- ]+")) {
-            hintText = "仅允许中文/英文/数字/空格/_/-";
-            hintColor = 0xFFE07070;
-            createButton.active = false;
-            return false;
+            hintText = "仅允许中文/英文/数字/空格/_/-"; hintColor = UIStyles.COLOR_ERR;
+            createBtn.setActive(false); return false;
         }
 
         boolean duplicate = parentScreen.getChatManager().getChannelManager().getAllActiveChannels().stream()
                 .anyMatch(ch -> ch.getDisplayName().equalsIgnoreCase(name));
         if (duplicate) {
-            hintText = "群组名已存在，请换一个";
-            hintColor = 0xFFE0B15F;
-            createButton.active = false;
-            return false;
+            hintText = "群组名已存在，请换一个"; hintColor = UIStyles.COLOR_WARN;
+            createBtn.setActive(false); return false;
         }
 
         if (access == ChatChannel.GroupAccess.ENCRYPTED) {
             String password = passwordInput.getValue() == null ? "" : passwordInput.getValue().trim();
             if (password.length() < 4) {
-                hintText = "加密群密码至少 4 位";
-                hintColor = 0xFFE07070;
-                createButton.active = false;
-                return false;
+                hintText = "加密群密码至少 4 位"; hintColor = UIStyles.COLOR_ERR;
+                createBtn.setActive(false); return false;
             }
         }
 
-        hintText = "信息有效，可创建";
-        hintColor = 0xFF93D17C;
-        createButton.active = true;
-        return true;
+        hintText = "信息有效，可创建"; hintColor = UIStyles.COLOR_OK;
+        createBtn.setActive(true); return true;
     }
 
     @Override
-    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        this.renderBackground(guiGraphics);
+    public void render(GuiGraphics gg, int mouseX, int mouseY, float pt) {
+        this.renderBackground(gg);
 
-        int panelX = (this.width - PANEL_WIDTH) / 2;
-        int panelY = (this.height - PANEL_HEIGHT) / 2;
+        int px = (this.width - DW) / 2, py = (this.height - DH) / 2;
 
-        guiGraphics.fill(panelX, panelY, panelX + PANEL_WIDTH, panelY + PANEL_HEIGHT, 0xEE1f1f1f);
-        guiGraphics.fill(panelX, panelY, panelX + PANEL_WIDTH, panelY + 1, 0xFF4a4a4a);
-        guiGraphics.fill(panelX, panelY + PANEL_HEIGHT - 1, panelX + PANEL_WIDTH, panelY + PANEL_HEIGHT, 0xFF4a4a4a);
-        guiGraphics.fill(panelX, panelY, panelX + 1, panelY + PANEL_HEIGHT, 0xFF4a4a4a);
-        guiGraphics.fill(panelX + PANEL_WIDTH - 1, panelY, panelX + PANEL_WIDTH, panelY + PANEL_HEIGHT, 0xFF4a4a4a);
+        UIStyles.drawShadow(gg, px, py, DW, DH);
+        gg.fill(px, py, px + DW, py + DH, UIStyles.BG_POPUP);
+        gg.fill(px, py, px + DW, py + 1, UIStyles.DIVIDER);
+        gg.fill(px, py + DH - 1, px + DW, py + DH, UIStyles.DIVIDER);
+        gg.fill(px, py, px + 1, py + DH, UIStyles.DIVIDER);
+        gg.fill(px + DW - 1, py, px + DW, py + DH, UIStyles.DIVIDER);
+        gg.drawString(this.font, "创建群组", px + 12, py + 8, UIStyles.TEXT_WHITE);
+        UIStyles.drawDivider(gg, px + 8, py + 22, DW - 16);
 
-        guiGraphics.drawString(this.font, "创建群组", panelX + 12, panelY + 8, 0xFFFFFFFF);
-
-        nameInput.render(guiGraphics, mouseX, mouseY, partialTick);
+        nameInput.render(gg, mouseX, mouseY, pt);
+        modeBtn.render(gg, mouseX, mouseY, pt);
 
         if (access == ChatChannel.GroupAccess.ENCRYPTED) {
-            guiGraphics.drawString(this.font, "密码", panelX + 12, panelY + 74, 0xFFBDBDBD);
-            passwordInput.render(guiGraphics, mouseX, mouseY, partialTick);
+            gg.drawString(this.font, "密码", px + 12, py + 74, UIStyles.TEXT_SECONDARY);
+            passwordInput.render(gg, mouseX, mouseY, pt);
         }
 
-        guiGraphics.drawString(this.font, hintText, panelX + 12, panelY + 118, hintColor);
-        super.render(guiGraphics, mouseX, mouseY, partialTick);
+        gg.drawString(this.font, hintText, px + 12, py + 118, hintColor);
+
+        createBtn.render(gg, mouseX, mouseY, pt);
+        cancelBtn.render(gg, mouseX, mouseY, pt);
+    }
+
+    @Override
+    public boolean mouseClicked(double mx, double my, int btn) {
+        if (modeBtn.mouseClicked(mx, my, btn)) return true;
+        if (createBtn.mouseClicked(mx, my, btn)) return true;
+        if (cancelBtn.mouseClicked(mx, my, btn)) return true;
+        return super.mouseClicked(mx, my, btn);
     }
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == 256) {
-            this.minecraft.setScreen(parentScreen);
-            return true;
-        }
-        if (keyCode == 257 || keyCode == 335) {
-            tryCreate();
-            return true;
-        }
+        if (keyCode == 256) { this.minecraft.setScreen(parentScreen); return true; }
+        if (keyCode == 257 || keyCode == 335) { tryCreate(); return true; }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
@@ -181,8 +157,4 @@ public class CreateGroupScreen extends Screen {
         return super.charTyped(codePoint, modifiers);
     }
 
-    @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        return super.mouseClicked(mouseX, mouseY, button);
-    }
 }

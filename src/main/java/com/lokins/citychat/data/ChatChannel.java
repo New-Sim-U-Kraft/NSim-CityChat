@@ -9,7 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ChatChannel {
     private final String channelId;
     private volatile int groupNumber;
-    private final String displayName;
+    private volatile String displayName;
     private final String description;
     private final ChannelType type;
     private volatile GroupAccess access;
@@ -246,6 +246,7 @@ public class ChatChannel {
     public int getGroupNumber() { return groupNumber; }
     public void setGroupNumber(int groupNumber) { this.groupNumber = groupNumber; }
     public String getDisplayName() { return displayName; }
+    public void setDisplayName(String displayName) { this.displayName = displayName; }
     public String getDescription() { return description; }
     public ChannelType getType() { return type; }
     public GroupAccess getAccess() { return access; }

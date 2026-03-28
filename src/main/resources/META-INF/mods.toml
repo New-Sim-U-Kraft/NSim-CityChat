@@ -66,6 +66,14 @@ description='''${mod_description}'''
     ordering="NONE"
     side="BOTH"
 
+# LDLib UI 框架
+[[dependencies.cc]]
+    modId="ldlib"
+    mandatory=true
+    versionRange="[1.0,)"
+    ordering="AFTER"
+    side="BOTH"
+
 # simukraft 可选依赖：有则自动集成，无则独立运行
 [[dependencies.cc]]
     modId="simukraft"
