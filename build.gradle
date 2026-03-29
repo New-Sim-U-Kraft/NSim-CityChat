@@ -148,8 +148,14 @@ dependencies {
         // 多项目模式：直接依赖 SK 的编译输出
         compileOnly rootProject.sourceSets.main.output
     } else {
-        // 独立构建模式：使用预构建的 dev jar
-        compileOnly files("libs/simukraft-dev.jar")
+        // 独立构建模式：优先引用本地 SK 项目编译输出，回退到预构建 dev jar
+        def skProjectDir = file("${projectDir}/../NewSim_U_Kraft/build/classes/java/main")
+        def skResDir = file("${projectDir}/../NewSim_U_Kraft/build/resources/main")
+        if (skProjectDir.exists()) {
+            compileOnly files(skProjectDir, skResDir)
+        } else {
+            compileOnly files("libs/simukraft-dev.jar")
+        }
     }
 
     // Mixin annotation processor
