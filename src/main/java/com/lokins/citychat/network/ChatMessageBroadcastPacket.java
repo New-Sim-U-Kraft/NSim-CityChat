@@ -26,23 +26,32 @@ public class ChatMessageBroadcastPacket {
     private final long timestamp;
     private final UUID messageId;
     private final List<MessageAction> actions;
+    private final String componentJson; // 可选的 Component JSON，客户端用于内容多语言翻译
+    private final String senderJson;   // 可选的 Component JSON，客户端用于发送者名翻译
 
     public ChatMessageBroadcastPacket() {
-        this("", null, "", "", 0L, null, Collections.emptyList());
+        this("", null, "", "", 0L, null, Collections.emptyList(), null, null);
     }
 
     public ChatMessageBroadcastPacket(String channelId, UUID senderId, String senderName, String content) {
-        this(channelId, senderId, senderName, content, System.currentTimeMillis(), UUID.randomUUID(), Collections.emptyList());
+        this(channelId, senderId, senderName, content, System.currentTimeMillis(), UUID.randomUUID(), Collections.emptyList(), null, null);
     }
 
     public ChatMessageBroadcastPacket(String channelId, UUID senderId, String senderName,
                                        String content, long timestamp, UUID messageId) {
-        this(channelId, senderId, senderName, content, timestamp, messageId, Collections.emptyList());
+        this(channelId, senderId, senderName, content, timestamp, messageId, Collections.emptyList(), null, null);
     }
 
     public ChatMessageBroadcastPacket(String channelId, UUID senderId, String senderName,
                                        String content, long timestamp, UUID messageId,
                                        List<MessageAction> actions) {
+        this(channelId, senderId, senderName, content, timestamp, messageId, actions, null, null);
+    }
+
+    public ChatMessageBroadcastPacket(String channelId, UUID senderId, String senderName,
+                                       String content, long timestamp, UUID messageId,
+                                       List<MessageAction> actions, String componentJson,
+                                       String senderJson) {
         this.channelId = channelId;
         this.senderId = senderId;
         this.senderName = senderName;
@@ -50,6 +59,8 @@ public class ChatMessageBroadcastPacket {
         this.timestamp = timestamp;
         this.messageId = messageId;
         this.actions = actions == null ? Collections.emptyList() : actions;
+        this.componentJson = componentJson;
+        this.senderJson = senderJson;
     }
 
     public static void encode(ChatMessageBroadcastPacket msg, FriendlyByteBuf buf) {
@@ -60,6 +71,9 @@ public class ChatMessageBroadcastPacket {
         buf.writeLong(msg.timestamp);
         buf.writeUUID(msg.messageId);
         MessageAction.writeList(buf, msg.actions);
+        // 可选的 Component JSON（空字符串表示无）
+        buf.writeUtf(msg.componentJson != null ? msg.componentJson : "", 512);
+        buf.writeUtf(msg.senderJson != null ? msg.senderJson : "", 256);
     }
 
     public static ChatMessageBroadcastPacket decode(FriendlyByteBuf buf) {
@@ -70,14 +84,38 @@ public class ChatMessageBroadcastPacket {
         long timestamp = buf.readLong();
         UUID messageId = buf.readUUID();
         List<MessageAction> actions = MessageAction.readList(buf);
-        return new ChatMessageBroadcastPacket(channelId, senderId, senderName, content, timestamp, messageId, actions);
+        String componentJson = buf.readUtf(512);
+        if (componentJson.isEmpty()) componentJson = null;
+        String senderJson = buf.readUtf(256);
+        if (senderJson.isEmpty()) senderJson = null;
+        return new ChatMessageBroadcastPacket(channelId, senderId, senderName, content, timestamp, messageId, actions, componentJson, senderJson);
     }
 
     public static void handle(ChatMessageBroadcastPacket msg, Supplier<NetworkEvent.Context> ctxSupplier) {
         NetworkEvent.Context ctx = ctxSupplier.get();
         ctx.enqueueWork(() -> {
-            com.mojang.logging.LogUtils.getLogger().info("[CC客户端] 收到 ChatMessageBroadcast: 频道={}, 发送者={}, 内容={}, actions={}",
-                    msg.channelId, msg.senderName, msg.content, msg.actions.size());
+            com.mojang.logging.LogUtils.getLogger().info("[CC客户端] 收到 ChatMessageBroadcast: 频道={}, 发送者={}, actions={}",
+                    msg.channelId, msg.senderName, msg.actions.size());
+
+            // 如果有 Component JSON，在客户端解析为本地化文本，用于显示
+            String displayContent = msg.content;
+            String displaySender = msg.senderName;
+            if (msg.componentJson != null) {
+                try {
+                    net.minecraft.network.chat.Component comp =
+                            net.minecraft.network.chat.Component.Serializer.fromJson(msg.componentJson);
+                    if (comp != null) displayContent = comp.getString();
+                } catch (Exception ignored) {
+                }
+            }
+            if (msg.senderJson != null) {
+                try {
+                    net.minecraft.network.chat.Component comp =
+                            net.minecraft.network.chat.Component.Serializer.fromJson(msg.senderJson);
+                    if (comp != null) displaySender = comp.getString();
+                } catch (Exception ignored) {
+                }
+            }
 
             ChatManager chatManager = ChatManager.getInstance();
             ChatChannel targetChannel = chatManager.getChannelManager().getChannel(msg.channelId);
@@ -86,10 +124,11 @@ public class ChatMessageBroadcastPacket {
                 com.mojang.logging.LogUtils.getLogger().warn("[CC客户端] 频道 {} 在客户端不存在! 消息将被丢弃（可能快照还没到）", msg.channelId);
             }
 
+            // 用本地化后的文本创建消息
             ChatMessage chatMessage = new ChatMessage(
                     msg.senderId,
-                    msg.senderName,
-                    msg.content,
+                    displaySender,
+                    displayContent,
                     msg.channelId,
                     false,
                     msg.timestamp,
@@ -114,8 +153,7 @@ public class ChatMessageBroadcastPacket {
 
             if (shouldNotify) {
                 String channelName = targetChannel != null ? targetChannel.getDisplayName() : msg.channelId;
-                com.mojang.logging.LogUtils.getLogger().info("[CC客户端] 触发右上角通知: 频道={}, 发送者={}", channelName, msg.senderName);
-                NotificationManager.getInstance().addNotification(channelName, msg.senderName, msg.content, msg.actions);
+                NotificationManager.getInstance().addNotification(channelName, displaySender, displayContent, msg.actions);
             }
         });
         ctx.setPacketHandled(true);

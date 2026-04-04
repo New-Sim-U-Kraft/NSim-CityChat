@@ -104,12 +104,26 @@ public class ChannelSnapshotPacket {
                 channel.addAdmin(entry.ownerId, adminId);
             }
 
-            // 恢复消息历史
+            // 恢复消息历史（如有 Component JSON 则在客户端翻译）
             for (MessageEntry msgEntry : entry.messages) {
+                String displayContent = msgEntry.content;
+                String displaySender = msgEntry.senderName;
+                if (msgEntry.componentJson != null) {
+                    try {
+                        var comp = net.minecraft.network.chat.Component.Serializer.fromJson(msgEntry.componentJson);
+                        if (comp != null) displayContent = comp.getString();
+                    } catch (Exception ignored) {}
+                }
+                if (msgEntry.senderJson != null) {
+                    try {
+                        var comp = net.minecraft.network.chat.Component.Serializer.fromJson(msgEntry.senderJson);
+                        if (comp != null) displaySender = comp.getString();
+                    } catch (Exception ignored) {}
+                }
                 ChatMessage chatMessage = new ChatMessage(
                         msgEntry.senderId,
-                        msgEntry.senderName,
-                        msgEntry.content,
+                        displaySender,
+                        displayContent,
                         entry.channelId,
                         false,
                         msgEntry.timestamp,
@@ -143,6 +157,8 @@ public class ChannelSnapshotPacket {
         String content;
         long timestamp;
         UUID messageId;
+        String componentJson; // 可选的 Component JSON，客户端翻译用
+        String senderJson;    // 可选的发送者 Component JSON
 
         void encode(FriendlyByteBuf buf) {
             buf.writeUUID(senderId);
@@ -150,6 +166,8 @@ public class ChannelSnapshotPacket {
             buf.writeUtf(content, 256);
             buf.writeLong(timestamp);
             buf.writeUUID(messageId);
+            buf.writeUtf(componentJson != null ? componentJson : "", 512);
+            buf.writeUtf(senderJson != null ? senderJson : "", 256);
         }
 
         static MessageEntry decode(FriendlyByteBuf buf) {
@@ -159,6 +177,10 @@ public class ChannelSnapshotPacket {
             entry.content = buf.readUtf(256);
             entry.timestamp = buf.readLong();
             entry.messageId = buf.readUUID();
+            entry.componentJson = buf.readUtf(512);
+            if (entry.componentJson.isEmpty()) entry.componentJson = null;
+            entry.senderJson = buf.readUtf(256);
+            if (entry.senderJson.isEmpty()) entry.senderJson = null;
             return entry;
         }
     }
@@ -209,6 +231,8 @@ public class ChannelSnapshotPacket {
                 me.content = msg.getContent();
                 me.timestamp = msg.getTimestamp();
                 me.messageId = msg.getMessageId();
+                me.componentJson = msg.getComponentJson();
+                me.senderJson = msg.getSenderJson();
                 entry.messages.add(me);
             }
             return entry;

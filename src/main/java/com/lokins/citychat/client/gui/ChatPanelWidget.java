@@ -4,6 +4,8 @@ import com.lokins.citychat.data.ChatMessage;
 import com.lokins.citychat.data.MessageAction;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.network.chat.Component;
+import net.minecraft.util.FormattedCharSequence;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -46,8 +48,25 @@ public class ChatPanelWidget {
                 b -> parent.openGroupInfoForCurrentChannel());
     }
 
-    private int getVisibleMessageCount() {
-        return Math.max(1, (height - HEADER_HEIGHT - PADDING * 2) / MESSAGE_HEIGHT);
+    /** 计算单条消息占用的像素高度（含换行和 action 按钮行） */
+    private int getMessageHeight(ChatMessage msg) {
+        Minecraft mc = Minecraft.getInstance();
+        int contentWidth = width - SCROLLBAR_WIDTH - PADDING * 2;
+        // 前缀宽度：时间 + 发送者
+        String timeStr = TIME_FORMAT.format(new Date(msg.getTimestamp()));
+        int prefixWidth = mc.font.width(timeStr) + 6 + mc.font.width(msg.getSenderName()) + 6;
+        int availableWidth = contentWidth - prefixWidth;
+        if (availableWidth < 40) availableWidth = contentWidth; // 前缀太长时内容独占一行
+
+        String content = msg.getContent();
+        int lines = 1;
+        if (availableWidth > 0 && mc.font.width(content) > availableWidth) {
+            List<FormattedCharSequence> wrapped = mc.font.split(Component.literal(content), availableWidth);
+            lines = Math.max(1, wrapped.size());
+        }
+        int h = MESSAGE_HEIGHT + (lines - 1) * (mc.font.lineHeight + 1);
+        if (msg.hasActions()) h += ACTION_ROW_HEIGHT;
+        return h;
     }
 
     public void render(GuiGraphics gg, int mouseX, int mouseY, float pt) {
@@ -67,26 +86,40 @@ public class ChatPanelWidget {
         }
 
         List<ChatMessage> messages = channel.getMessageHistory();
-        int visibleCount = getVisibleMessageCount();
-        int maxScroll = Math.max(0, messages.size() - visibleCount);
+        int contentAreaHeight = height - HEADER_HEIGHT - PADDING * 2;
+
+        // 计算所有消息的总高度用于滚动
+        int totalHeight = 0;
+        for (ChatMessage msg : messages) totalHeight += getMessageHeight(msg);
+        int maxScroll = Math.max(0, totalHeight - contentAreaHeight);
         scrollOffset = Math.min(scrollOffset, maxScroll);
         scrollOffset = Math.max(0, scrollOffset);
 
-        int startIdx = Math.max(0, messages.size() - visibleCount - scrollOffset);
-        int endIdx = Math.min(messages.size(), startIdx + visibleCount);
-
+        // 从底部开始渲染（最新消息在底部）
         renderedMessages.clear();
         actionButtonRects.clear();
-        int yOffset = y + HEADER_HEIGHT + PADDING;
-        for (int i = startIdx; i < endIdx; i++) {
+        int areaTop = y + HEADER_HEIGHT + PADDING;
+        int areaBottom = y + height - PADDING;
+
+        // 计算起始 y：所有消息从 areaTop 开始，向下排列，再减去 scrollOffset
+        int yOffset = areaTop - scrollOffset;
+        // 如果消息总高度不足面板，从底部对齐
+        if (totalHeight < contentAreaHeight) {
+            yOffset = areaBottom - totalHeight;
+        }
+
+        // 启用裁剪区域
+        gg.enableScissor(x, areaTop, x + width, areaBottom);
+
+        for (int i = 0; i < messages.size(); i++) {
             ChatMessage msg = messages.get(i);
-            int msgHeight = msg.hasActions() ? MESSAGE_HEIGHT + ACTION_ROW_HEIGHT : MESSAGE_HEIGHT;
-            if (yOffset >= y + HEADER_HEIGHT && yOffset < y + height - PADDING) {
+            int msgHeight = getMessageHeight(msg);
+            int msgBottom = yOffset + msgHeight;
+            if (msgBottom > areaTop && yOffset < areaBottom) {
                 // 悬停高亮
-                if (mouseY >= yOffset && mouseY < yOffset + msgHeight
+                if (mouseY >= yOffset && mouseY < msgBottom
                         && mouseX >= x && mouseX < x + width - SCROLLBAR_WIDTH) {
-                    gg.fill(x, yOffset - 1, x + width - SCROLLBAR_WIDTH - 2, yOffset + msgHeight - 1,
-                            UIStyles.BG_HOVER);
+                    gg.fill(x, yOffset - 1, x + width - SCROLLBAR_WIDTH - 2, msgBottom - 1, UIStyles.BG_HOVER);
                 }
                 renderMessage(gg, msg, yOffset);
                 renderedMessages.add(new RenderedMessage(msg, yOffset));
@@ -94,7 +127,9 @@ public class ChatPanelWidget {
             yOffset += msgHeight;
         }
 
-        renderScrollbar(gg, messages.size(), visibleCount);
+        gg.disableScissor();
+
+        renderScrollbar(gg, totalHeight, contentAreaHeight);
     }
 
     private void renderHeader(GuiGraphics gg, Object channelObj, int mouseX, int mouseY, float pt) {
@@ -137,44 +172,54 @@ public class ChatPanelWidget {
         gg.drawString(mc.font, nameStr, textX, yPos, UIStyles.TEXT_LINK);
         textX += mc.font.width(nameStr) + 6;
 
-        // 消息内容：尝试解析 Component JSON（支持多语言翻译），失败则直接显示原文
-        String rawContent = message.getContent();
-        net.minecraft.network.chat.Component displayContent = tryParseComponentJson(rawContent);
-        if (displayContent != null) {
-            gg.drawString(mc.font, displayContent, textX, yPos, UIStyles.TEXT_PRIMARY);
+        // 消息内容（自动换行）
+        String content = message.getContent();
+        int availableWidth = x + width - SCROLLBAR_WIDTH - PADDING - textX;
+        if (availableWidth < 40) {
+            availableWidth = width - SCROLLBAR_WIDTH - PADDING * 2;
+            textX = x + PADDING;
+            yPos += mc.font.lineHeight + 1;
+        }
+
+        if (mc.font.width(content) <= availableWidth) {
+            gg.drawString(mc.font, content, textX, yPos, UIStyles.TEXT_PRIMARY);
+            yPos += mc.font.lineHeight + 1;
         } else {
-            gg.drawString(mc.font, rawContent, textX, yPos, UIStyles.TEXT_PRIMARY);
+            List<FormattedCharSequence> lines = mc.font.split(Component.literal(content), availableWidth);
+            for (FormattedCharSequence line : lines) {
+                gg.drawString(mc.font, line, textX, yPos, UIStyles.TEXT_PRIMARY);
+                yPos += mc.font.lineHeight + 1;
+            }
         }
 
         // 渲染 action 按钮
         if (message.hasActions()) {
             int btnX = x + PADDING;
-            int btnY = yPos + MESSAGE_HEIGHT;
             for (MessageAction action : message.getActions()) {
                 int btnTextWidth = mc.font.width(action.label());
                 int btnWidth = btnTextWidth + ACTION_BTN_PADDING * 2 + 4;
                 int btnColor = action.color() | 0xFF000000;
                 int btnBgColor = 0xFF3A3A3A;
 
-                gg.fill(btnX, btnY, btnX + btnWidth, btnY + ACTION_ROW_HEIGHT - 2, btnBgColor);
-                gg.drawString(mc.font, action.label(), btnX + ACTION_BTN_PADDING + 2, btnY + 2, btnColor);
+                gg.fill(btnX, yPos, btnX + btnWidth, yPos + ACTION_ROW_HEIGHT - 2, btnBgColor);
+                gg.drawString(mc.font, action.label(), btnX + ACTION_BTN_PADDING + 2, yPos + 2, btnColor);
 
-                actionButtonRects.add(new ActionButtonRect(btnX, btnY, btnX + btnWidth, btnY + ACTION_ROW_HEIGHT - 2, action.command()));
+                actionButtonRects.add(new ActionButtonRect(btnX, yPos, btnX + btnWidth, yPos + ACTION_ROW_HEIGHT - 2, action.command()));
                 btnX += btnWidth + 4;
             }
         }
     }
 
-    private void renderScrollbar(GuiGraphics gg, int totalMessages, int visibleCount) {
-        if (totalMessages <= visibleCount) return;
+    private void renderScrollbar(GuiGraphics gg, int totalHeight, int areaHeight) {
+        if (totalHeight <= areaHeight) return;
 
         int trackX = x + width - SCROLLBAR_WIDTH - 1;
         int trackY = y + HEADER_HEIGHT + 2;
         int trackHeight = height - HEADER_HEIGHT - 4;
 
-        float ratio = (float) visibleCount / totalMessages;
+        float ratio = (float) areaHeight / totalHeight;
         int thumbHeight = Math.max(16, (int) (trackHeight * ratio));
-        int maxScroll = totalMessages - visibleCount;
+        int maxScroll = totalHeight - areaHeight;
         float scrollRatio = maxScroll > 0 ? (float) scrollOffset / maxScroll : 0;
         int thumbY = trackY + (int) ((trackHeight - thumbHeight) * (1f - scrollRatio));
 
@@ -229,7 +274,7 @@ public class ChatPanelWidget {
 
     public boolean mouseScrolled(double pMouseX, double pMouseY, double pDelta) {
         if (isMouseOver((int) pMouseX, (int) pMouseY)) {
-            scrollOffset = Math.max(0, (int) (scrollOffset - pDelta));
+            scrollOffset = Math.max(0, scrollOffset - (int) (pDelta * MESSAGE_HEIGHT));
             return true;
         }
         return false;
@@ -249,18 +294,4 @@ public class ChatPanelWidget {
         return mx >= x && mx < x + width && my >= y && my < y + height;
     }
 
-    /**
-     * 尝试将字符串解析为 Minecraft Component JSON。
-     * 如果字符串以 '{' 或 '[' 或 '"' 开头且能成功解析，返回 Component；否则返回 null。
-     */
-    private static net.minecraft.network.chat.Component tryParseComponentJson(String raw) {
-        if (raw == null || raw.isEmpty()) return null;
-        char first = raw.charAt(0);
-        if (first != '{' && first != '[' && first != '"') return null;
-        try {
-            return net.minecraft.network.chat.Component.Serializer.fromJson(raw);
-        } catch (Exception e) {
-            return null;
-        }
-    }
 }

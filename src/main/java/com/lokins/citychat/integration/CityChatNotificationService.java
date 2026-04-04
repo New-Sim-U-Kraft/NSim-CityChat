@@ -290,21 +290,17 @@ public class CityChatNotificationService implements IMessageNotificationService 
             String title = notification.getTitle() != null ? notification.getTitle() : "";
             String content = notification.getContent() != null ? notification.getContent() : "";
 
-            // 优先使用 metadata 中的 Component JSON（保留翻译键，客户端按玩家语言翻译）
+            String messageContent = title.isEmpty() ? content : "[" + title + "] " + content;
+
+            // 从 metadata 获取 Component JSON（供客户端翻译）
             Map<String, String> meta = notification.getMetadata();
             String contentJson = meta != null ? meta.get("contentJson") : null;
-
-            String messageContent;
-            if (contentJson != null) {
-                // 传 JSON 给客户端，客户端反序列化后按玩家语言翻译
-                messageContent = contentJson;
-            } else {
-                messageContent = title.isEmpty() ? content : "[" + title + "] " + content;
-            }
+            String senderJson = meta != null ? meta.get("senderJson") : null;
 
             List<MessageAction> actions = extractActions(notification);
             ChatMessage chatMessage = new ChatMessage(SYSTEM_UUID, senderName, messageContent,
-                    channel.getChannelId(), false, System.currentTimeMillis(), UUID.randomUUID(), actions);
+                    channel.getChannelId(), false, System.currentTimeMillis(), UUID.randomUUID(), actions,
+                    contentJson, senderJson);
             channelManager.addMessage(channel.getChannelId(), chatMessage);
 
             String notifyId = notification.getId() != null ? notification.getId().toString() : "?";
@@ -312,14 +308,14 @@ public class CityChatNotificationService implements IMessageNotificationService 
             LOGGER.info("[SK-NOTIFY] BRIDGE | id={} | channelId={} | channelName={} | memberAdded={}",
                     notifyId, channel.getChannelId(), channel.getDisplayName(), memberAdded);
 
-            // 广播到频道成员的客户端
-            broadcastToChannelMembers(channel, chatMessage, notifyId);
+            // 广播到频道成员的客户端（附带 Component JSON 供客户端翻译）
+            broadcastToChannelMembers(channel, chatMessage, notifyId, contentJson, senderJson);
         } catch (Exception e) {
             LOGGER.warn("[SK-NOTIFY] 桥接通知到频道失败", e);
         }
     }
 
-    private void broadcastToChannelMembers(ChatChannel channel, ChatMessage message, String notifyId) {
+    private void broadcastToChannelMembers(ChatChannel channel, ChatMessage message, String notifyId, String contentJson, String senderJson) {
         var server = ServerLifecycleHooks.getCurrentServer();
         if (server == null) {
             LOGGER.warn("[SK-NOTIFY] BROADCAST | id={} | channelId={} | error=server_null", notifyId, channel.getChannelId());
@@ -329,7 +325,7 @@ public class CityChatNotificationService implements IMessageNotificationService 
         ChatMessageBroadcastPacket packet = new ChatMessageBroadcastPacket(
                 message.getChannelId(), message.getSenderId(), message.getSenderName(),
                 message.getContent(), message.getTimestamp(), message.getMessageId(),
-                message.getActions()
+                message.getActions(), contentJson, senderJson
         );
 
         int onlineCount = 0;
