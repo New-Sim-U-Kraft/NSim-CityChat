@@ -289,7 +289,18 @@ public class CityChatNotificationService implements IMessageNotificationService 
             String senderName = notification.getSender() != null ? notification.getSender() : "系统";
             String title = notification.getTitle() != null ? notification.getTitle() : "";
             String content = notification.getContent() != null ? notification.getContent() : "";
-            String messageContent = title.isEmpty() ? content : "[" + title + "] " + content;
+
+            // 优先使用 metadata 中的 Component JSON（保留翻译键，客户端按玩家语言翻译）
+            Map<String, String> meta = notification.getMetadata();
+            String contentJson = meta != null ? meta.get("contentJson") : null;
+
+            String messageContent;
+            if (contentJson != null) {
+                // 传 JSON 给客户端，客户端反序列化后按玩家语言翻译
+                messageContent = contentJson;
+            } else {
+                messageContent = title.isEmpty() ? content : "[" + title + "] " + content;
+            }
 
             List<MessageAction> actions = extractActions(notification);
             ChatMessage chatMessage = new ChatMessage(SYSTEM_UUID, senderName, messageContent,

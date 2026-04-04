@@ -129,8 +129,14 @@ public class ChatPanelWidget {
         gg.drawString(mc.font, nameStr, textX, yPos, UIStyles.TEXT_LINK);
         textX += mc.font.width(nameStr) + 6;
 
-        // 消息内容
-        gg.drawString(mc.font, message.getContent(), textX, yPos, UIStyles.TEXT_PRIMARY);
+        // 消息内容：尝试解析 Component JSON（支持多语言翻译），失败则直接显示原文
+        String rawContent = message.getContent();
+        net.minecraft.network.chat.Component displayContent = tryParseComponentJson(rawContent);
+        if (displayContent != null) {
+            gg.drawString(mc.font, displayContent, textX, yPos, UIStyles.TEXT_PRIMARY);
+        } else {
+            gg.drawString(mc.font, rawContent, textX, yPos, UIStyles.TEXT_PRIMARY);
+        }
     }
 
     private void renderScrollbar(GuiGraphics gg, int totalMessages, int visibleCount) {
@@ -200,5 +206,20 @@ public class ChatPanelWidget {
 
     private boolean isMouseOver(int mx, int my) {
         return mx >= x && mx < x + width && my >= y && my < y + height;
+    }
+
+    /**
+     * 尝试将字符串解析为 Minecraft Component JSON。
+     * 如果字符串以 '{' 或 '[' 或 '"' 开头且能成功解析，返回 Component；否则返回 null。
+     */
+    private static net.minecraft.network.chat.Component tryParseComponentJson(String raw) {
+        if (raw == null || raw.isEmpty()) return null;
+        char first = raw.charAt(0);
+        if (first != '{' && first != '[' && first != '"') return null;
+        try {
+            return net.minecraft.network.chat.Component.Serializer.fromJson(raw);
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

@@ -65,7 +65,9 @@ public class NotificationManager {
                                  List<MessageAction> actions) {
         notifications.removeIf(Notification::isExpired);
 
-        String preview = content.length() > 20 ? content.substring(0, 20) + "..." : content;
+        // 尝试解析 Component JSON 以获取本地化文本
+        String displayContent = tryResolveComponentJson(content);
+        String preview = displayContent.length() > 20 ? displayContent.substring(0, 20) + "..." : displayContent;
         notifications.add(new Notification(channelName, senderName, preview, System.currentTimeMillis(),
                 actions == null ? Collections.emptyList() : actions));
 
@@ -81,5 +83,21 @@ public class NotificationManager {
 
     public void clear() {
         notifications.clear();
+    }
+
+    /**
+     * 尝试将字符串解析为 Minecraft Component JSON 并获取客户端本地化文本。
+     * 如果不是 JSON 格式则返回原文。
+     */
+    private static String tryResolveComponentJson(String raw) {
+        if (raw == null || raw.isEmpty()) return raw;
+        char first = raw.charAt(0);
+        if (first != '{' && first != '[' && first != '"') return raw;
+        try {
+            net.minecraft.network.chat.Component comp = net.minecraft.network.chat.Component.Serializer.fromJson(raw);
+            return comp != null ? comp.getString() : raw;
+        } catch (Exception e) {
+            return raw;
+        }
     }
 }
