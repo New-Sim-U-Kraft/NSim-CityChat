@@ -104,6 +104,12 @@ public class ChannelSnapshotPacket {
                 channel.addAdmin(entry.ownerId, adminId);
             }
 
+            // 客户端翻译通知频道名（服务端存的是英文）
+            if (channel.getType() == ChatChannel.ChannelType.NOTIFICATION) {
+                String translated = resolveNotifyDisplayNameClient(entry.channelId, entry.displayName);
+                if (translated != null) channel.setDisplayName(translated);
+            }
+
             // 恢复消息历史（如有 Component JSON 则在客户端翻译）
             for (MessageEntry msgEntry : entry.messages) {
                 String displayContent = msgEntry.content;
@@ -149,6 +155,44 @@ public class ChannelSnapshotPacket {
 
         cm.getChannelManager().replaceFromSnapshot(rebuilt);
         ctx.setPacketHandled(true);
+    }
+
+    /**
+     * 客户端翻译通知频道名：从频道 ID 解析 categoryKey，用客户端语言翻译分类标签。
+     */
+    private static String resolveNotifyDisplayNameClient(String channelId, String fallback) {
+        if (!channelId.startsWith("sk_notify_")) return null;
+        String rest = channelId.substring("sk_notify_".length());
+        String cityName;
+        String categoryKey;
+        if (rest.startsWith("global_")) {
+            cityName = "global";
+            categoryKey = rest.substring("global_".length());
+        } else if (rest.length() > 37 && rest.charAt(36) == '_') {
+            // 城市名保留服务端传来的（已是正确的城市名）
+            cityName = null; // 从 fallback 中提取
+            categoryKey = rest.substring(37);
+        } else {
+            return null;
+        }
+
+        // 用翻译键在客户端翻译分类标签
+        String translatedCategory;
+        try {
+            var category = com.xiaoliang.simukraft.notification.MessageCategory.fromKey(categoryKey.toUpperCase());
+            translatedCategory = net.minecraft.network.chat.Component.translatable(category.getTranslationKey()).getString();
+        } catch (Exception e) {
+            return null;
+        }
+
+        // 从 fallback 显示名中提取城市名部分（去掉英文分类后缀）
+        if (cityName == null) {
+            // fallback 格式: "城市名[English Category]"，提取城市名
+            int bracketIdx = fallback.lastIndexOf('[');
+            cityName = bracketIdx > 0 ? fallback.substring(0, bracketIdx) : fallback;
+        }
+
+        return cityName + translatedCategory;
     }
 
     static class MessageEntry {
