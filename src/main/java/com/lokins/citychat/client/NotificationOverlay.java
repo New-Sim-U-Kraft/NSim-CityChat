@@ -123,8 +123,8 @@ public class NotificationOverlay {
             if (buttonRects.isEmpty()) return;
 
             Minecraft mc = Minecraft.getInstance();
-            // 只在游戏内（没有 Screen 打开时）处理点击
-            if (mc.screen != null || mc.player == null) return;
+            if (mc.player == null) return;
+            // Screen 打开时仍允许点击右上角弹窗按钮（弹窗渲染在 Screen 之上）
 
             double mouseX = mc.mouseHandler.xpos() * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getWidth();
             double mouseY = mc.mouseHandler.ypos() * mc.getWindow().getGuiScaledHeight() / mc.getWindow().getHeight();

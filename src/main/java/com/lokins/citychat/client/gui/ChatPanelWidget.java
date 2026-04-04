@@ -1,6 +1,7 @@
 package com.lokins.citychat.client.gui;
 
 import com.lokins.citychat.data.ChatMessage;
+import com.lokins.citychat.data.MessageAction;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 
@@ -19,15 +20,20 @@ public class ChatPanelWidget {
     private static final int PADDING = 8;
     private static final SimpleDateFormat TIME_FORMAT = new SimpleDateFormat("HH:mm");
 
+    private static final int ACTION_ROW_HEIGHT = 14;
+    private static final int ACTION_BTN_PADDING = 2;
+
     private final int x, y, width, height;
     private final ChatScreen parent;
 
     private int scrollOffset = 0;
     private MessageContextMenu contextMenu;
     private final List<RenderedMessage> renderedMessages = new ArrayList<>();
+    private final List<ActionButtonRect> actionButtonRects = new ArrayList<>();
     private final CCButton infoButton;
 
     private record RenderedMessage(ChatMessage message, int yPos) {}
+    private record ActionButtonRect(int x1, int y1, int x2, int y2, String command) {}
 
     public ChatPanelWidget(int x, int y, int width, int height, ChatScreen parent) {
         this.x = x;
@@ -70,20 +76,22 @@ public class ChatPanelWidget {
         int endIdx = Math.min(messages.size(), startIdx + visibleCount);
 
         renderedMessages.clear();
+        actionButtonRects.clear();
         int yOffset = y + HEADER_HEIGHT + PADDING;
         for (int i = startIdx; i < endIdx; i++) {
             ChatMessage msg = messages.get(i);
+            int msgHeight = msg.hasActions() ? MESSAGE_HEIGHT + ACTION_ROW_HEIGHT : MESSAGE_HEIGHT;
             if (yOffset >= y + HEADER_HEIGHT && yOffset < y + height - PADDING) {
                 // 悬停高亮
-                if (mouseY >= yOffset && mouseY < yOffset + MESSAGE_HEIGHT
+                if (mouseY >= yOffset && mouseY < yOffset + msgHeight
                         && mouseX >= x && mouseX < x + width - SCROLLBAR_WIDTH) {
-                    gg.fill(x, yOffset - 1, x + width - SCROLLBAR_WIDTH - 2, yOffset + MESSAGE_HEIGHT - 1,
+                    gg.fill(x, yOffset - 1, x + width - SCROLLBAR_WIDTH - 2, yOffset + msgHeight - 1,
                             UIStyles.BG_HOVER);
                 }
                 renderMessage(gg, msg, yOffset);
                 renderedMessages.add(new RenderedMessage(msg, yOffset));
             }
-            yOffset += MESSAGE_HEIGHT;
+            yOffset += msgHeight;
         }
 
         renderScrollbar(gg, messages.size(), visibleCount);
@@ -137,6 +145,24 @@ public class ChatPanelWidget {
         } else {
             gg.drawString(mc.font, rawContent, textX, yPos, UIStyles.TEXT_PRIMARY);
         }
+
+        // 渲染 action 按钮
+        if (message.hasActions()) {
+            int btnX = x + PADDING;
+            int btnY = yPos + MESSAGE_HEIGHT;
+            for (MessageAction action : message.getActions()) {
+                int btnTextWidth = mc.font.width(action.label());
+                int btnWidth = btnTextWidth + ACTION_BTN_PADDING * 2 + 4;
+                int btnColor = action.color() | 0xFF000000;
+                int btnBgColor = 0xFF3A3A3A;
+
+                gg.fill(btnX, btnY, btnX + btnWidth, btnY + ACTION_ROW_HEIGHT - 2, btnBgColor);
+                gg.drawString(mc.font, action.label(), btnX + ACTION_BTN_PADDING + 2, btnY + 2, btnColor);
+
+                actionButtonRects.add(new ActionButtonRect(btnX, btnY, btnX + btnWidth, btnY + ACTION_ROW_HEIGHT - 2, action.command()));
+                btnX += btnWidth + 4;
+            }
+        }
     }
 
     private void renderScrollbar(GuiGraphics gg, int totalMessages, int visibleCount) {
@@ -168,6 +194,21 @@ public class ChatPanelWidget {
         }
 
         if (!isMouseOver((int) mouseX, (int) mouseY)) return false;
+
+        // 检查 action 按钮点击（通知频道也允许点击 action 按钮）
+        if (button == 0) {
+            for (ActionButtonRect rect : actionButtonRects) {
+                if (mouseX >= rect.x1 && mouseX <= rect.x2 && mouseY >= rect.y1 && mouseY <= rect.y2) {
+                    Minecraft mc = Minecraft.getInstance();
+                    if (mc.player != null) {
+                        String command = rect.command;
+                        if (command.startsWith("/")) command = command.substring(1);
+                        mc.player.connection.sendCommand(command);
+                    }
+                    return true;
+                }
+            }
+        }
 
         // 通知频道：无信息按钮、无右键菜单
         if (isCurrentChannelNotification()) return false;
