@@ -72,8 +72,8 @@ public class ChatMessageBroadcastPacket {
         buf.writeUUID(msg.messageId);
         MessageAction.writeList(buf, msg.actions);
         // 可选的 Component JSON（空字符串表示无）
-        buf.writeUtf(msg.componentJson != null ? msg.componentJson : "", 512);
-        buf.writeUtf(msg.senderJson != null ? msg.senderJson : "", 256);
+        buf.writeUtf(msg.componentJson != null ? msg.componentJson : "", 2048);
+        buf.writeUtf(msg.senderJson != null ? msg.senderJson : "", 512);
     }
 
     public static ChatMessageBroadcastPacket decode(FriendlyByteBuf buf) {
@@ -84,9 +84,9 @@ public class ChatMessageBroadcastPacket {
         long timestamp = buf.readLong();
         UUID messageId = buf.readUUID();
         List<MessageAction> actions = MessageAction.readList(buf);
-        String componentJson = buf.readUtf(512);
+        String componentJson = buf.readUtf(2048);
         if (componentJson.isEmpty()) componentJson = null;
-        String senderJson = buf.readUtf(256);
+        String senderJson = buf.readUtf(512);
         if (senderJson.isEmpty()) senderJson = null;
         return new ChatMessageBroadcastPacket(channelId, senderId, senderName, content, timestamp, messageId, actions, componentJson, senderJson);
     }

@@ -210,8 +210,8 @@ public class ChannelSnapshotPacket {
             buf.writeUtf(content, 256);
             buf.writeLong(timestamp);
             buf.writeUUID(messageId);
-            buf.writeUtf(componentJson != null ? componentJson : "", 512);
-            buf.writeUtf(senderJson != null ? senderJson : "", 256);
+            buf.writeUtf(componentJson != null ? componentJson : "", 2048);
+            buf.writeUtf(senderJson != null ? senderJson : "", 512);
         }
 
         static MessageEntry decode(FriendlyByteBuf buf) {
@@ -221,9 +221,9 @@ public class ChannelSnapshotPacket {
             entry.content = buf.readUtf(256);
             entry.timestamp = buf.readLong();
             entry.messageId = buf.readUUID();
-            entry.componentJson = buf.readUtf(512);
+            entry.componentJson = buf.readUtf(2048);
             if (entry.componentJson.isEmpty()) entry.componentJson = null;
-            entry.senderJson = buf.readUtf(256);
+            entry.senderJson = buf.readUtf(512);
             if (entry.senderJson.isEmpty()) entry.senderJson = null;
             return entry;
         }
